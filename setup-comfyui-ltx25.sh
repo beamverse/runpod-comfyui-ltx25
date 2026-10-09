@@ -277,15 +277,16 @@ class ModelDownloadProgress(tqdm):
 root = Path(os.environ['INSTALL_ROOT'])
 variant = os.environ['LTX_VARIANT']
 workflow = json.loads(Path(os.environ['LTX_TEMPLATE']).read_text())
-# The upstream template references the BF16 models; INT8 swaps in the quantized
-# transformer, text encoder and prompt enhancer.
-replacements = {
-    'ltx-2.5-22b-distilled-transformer-bf16.safetensors':
-        'ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors',
-    'gemma4-12b-with-proj-ltx-2.5-bf16.safetensors':
-        'gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors',
-    'gemma4_e2b_it_bf16.safetensors': 'gemma4_e2b_it_int8_convrot.safetensors',
-} if variant == 'int8' else {}
+# (bf16, int8) file pairs for the transformer, text encoder and prompt enhancer.
+# The upstream template has shipped either precision, so map both directions.
+pairs = [
+    ('ltx-2.5-22b-distilled-transformer-bf16.safetensors',
+     'ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors'),
+    ('gemma4-12b-with-proj-ltx-2.5-bf16.safetensors',
+     'gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors'),
+    ('gemma4_e2b_it_bf16.safetensors', 'gemma4_e2b_it_int8_convrot.safetensors'),
+]
+replacements = {int8: bf16 for bf16, int8 in pairs} if variant == 'bf16' else dict(pairs)
 def replace(value):
     if isinstance(value, str):
         for old, new in replacements.items():

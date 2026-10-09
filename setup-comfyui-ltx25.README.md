@@ -195,15 +195,15 @@ COMFYUI_REF=master bash /workspace/setup-comfyui-ltx25.sh install
 
 ## 完整精度（BF16）版本
 
-默认安装 INT8 量化模型（`LTX_VARIANT=int8`），适合 32 GB 显存。如需官方模板原始的 BF16 完整精度模型（22B 主模型、Gemma 4 12B 文本编码器和 Prompt Enhancer 均为 BF16）：
+默认安装 INT8 量化模型（`LTX_VARIANT=int8`），适合 32 GB 显存。如需 BF16 完整精度模型（22B 主模型、Gemma 4 12B 文本编码器和 Prompt Enhancer 均为 BF16）：
 
 ```bash
 LTX_VARIANT=bf16 bash /workspace/setup-comfyui-ltx25.sh install
 ```
 
 - 工作流保存为 `LTX-2.5-T2V-BF16.json`，与 INT8 工作流并存；两套模型共用 `data/models`，可以同时保留。
-- BF16 权重总量远大于 32 GB 显存，ComfyUI 会把部分权重放到系统内存，需要明显更多的内存，生成速度也更慢。建议使用更大显存的 GPU（如 80 GB 以上），或准备充足的系统内存。
-- 需要额外约数十 GB 磁盘空间；脚本会在下载前按实际文件大小检查剩余空间。
+- 模型下载量约 76 GiB（INT8 约 42 GiB）；其中主模型 39 GiB、文本编码器 24 GiB、Prompt Enhancer 10 GiB。脚本会在下载前按实际文件大小检查剩余空间。
+- BF16 权重远大于 32 GB 显存；在 RTX 5090 上 ComfyUI 会把部分权重放到系统内存，需要明显更多的内存，速度也更慢。建议使用 96 GB 显存的 RTX PRO 6000 或 80 GB 以上的 GPU。
 - `startup` 只在首次启动时安装。要在已有安装上加装 BF16，请停止 ComfyUI 后手动执行上面的命令。
 
 ## 自定义目录、端口和 ComfyUI 参数
@@ -245,7 +245,7 @@ SSH 公钥更建议添加到 RunPod Account 的 SSH Keys，而不是硬编码进
 ## 安装内容和边界
 
 - 独立 Python 3.12、CUDA 13.0 版 PyTorch、ComfyUI 及其匹配依赖。
-- 从已安装模板包中提取官方 LTX-2.5 文生视频工作流；默认（`LTX_VARIANT=int8`）将 BF16 主模型和文本编码器替换为 INT8 版本，Prompt Enhancer 也使用 INT8；`LTX_VARIANT=bf16` 保持官方模板原样。
+- 从已安装模板包中提取官方 LTX-2.5 文生视频工作流，按 `LTX_VARIANT` 把主模型、文本编码器和 Prompt Enhancer 统一替换为 INT8（默认）或 BF16 版本；上游模板无论发布哪种精度都能处理。
 - 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；不安装 Manager 或额外 custom nodes，基础工作流使用 ComfyUI 原生节点。
 - 检查 Hugging Face 授权、下载前剩余空间、模型文件大小、Python 依赖和实际 CUDA BF16 矩阵运算。
 - 记录源码 commit、已安装依赖版本和模型仓库 revision，便于复查。
