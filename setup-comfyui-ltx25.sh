@@ -67,6 +67,9 @@ if [[ "$action" == start ]]; then
     [[ -x "$app/.venv/bin/python" && -f "$app/main.py" ]] || die 'Installed release is incomplete.'
     exec 9>"$INSTALL_ROOT/setup.lock"
     flock -n 9 || die 'An installation or ComfyUI process already holds the lock.'
+    # ComfyUI scans this directory before starting the server, even when empty.
+    # Create it on every start to repair installations made by older scripts.
+    mkdir -p "$INSTALL_ROOT/data/custom_nodes"
     export LISTEN=${LISTEN:-0.0.0.0} PORT=${PORT:-8188}
     "$app/.venv/bin/python" - <<'PY'
 import os, socket
@@ -113,7 +116,7 @@ INSTALL_ROOT=$(realpath "$INSTALL_ROOT")
 export INSTALL_ROOT
 exec 9>"$INSTALL_ROOT/setup.lock"
 flock -n 9 || die 'Stop the ComfyUI process started by this script before installing/updating.'
-mkdir -p "$INSTALL_ROOT"/{releases,data/models,data/user/default/workflows,logs}
+mkdir -p "$INSTALL_ROOT"/{releases,data/models,data/custom_nodes,data/user/default/workflows,logs}
 df -h "$INSTALL_ROOT"
 
 # Separate bootstrap tools from ComfyUI dependencies; use Python 3.12 even
@@ -210,10 +213,34 @@ PY
 export LTX_TEMPLATE="$template"
 log 'Downloading LTX-2.5 models (existing Hub downloads are reused)'
 "$INSTALL_ROOT/bootstrap/bin/python" - <<'PY'
-import json, os, shutil
+import json, os, shutil, sys
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
 from huggingface_hub import HfApi, get_hf_file_metadata, hf_hub_download, hf_hub_url
+from tqdm.auto import tqdm
+
+class ModelDownloadProgress(tqdm):
+    def __init__(self, *args, **kwargs):
+        # Force progress on, including in RunPod's non-interactive startup logs.
+        kwargs.pop('name', None)
+        self.log_output = not sys.stderr.isatty()
+        kwargs.update(
+            file=sys.stderr, disable=False, leave=True,
+            mininterval=5.0 if self.log_output else 0.5, miniters=1,
+            unit='B', unit_scale=True, unit_divisor=1024,
+            bar_format='{desc}: {percentage:5.1f}% | {n_fmt}/{total_fmt} '
+                       '| {rate_fmt} | ETA {remaining}',
+        )
+        super().__init__(*args, **kwargs)
+
+    def display(self, msg=None, pos=None):
+        if self.log_output:
+            # Plain lines survive log collectors that do not render carriage returns.
+            if msg != '':
+                self.fp.write((str(self) if msg is None else msg) + '\n')
+                self.fp.flush()
+            return
+        return super().display(msg=msg, pos=pos)
 
 root = Path(os.environ['INSTALL_ROOT'])
 workflow = json.loads(Path(os.environ['LTX_TEMPLATE']).read_text())
@@ -299,11 +326,15 @@ if free < needed + 10 * 1024**3:
     raise SystemExit(f'Insufficient disk: {free / 1024**3:.1f}GiB free, need approximately '
                      f'{needed / 1024**3 + 10:.1f}GiB including headroom.')
 manifest = []
-for repo, filename, sha, size in plan:
-    print(f'Downloading {filename} ({size / 1024**3:.2f}GiB)', flush=True)
-    dest = Path(hf_hub_download(repo, filename, revision=sha, token=token, local_dir=model_dir))
+for index, (repo, filename, sha, size) in enumerate(plan, start=1):
+    print(f'[{index}/{len(plan)}] Downloading {filename} ({size / 1024**3:.2f}GiB)', flush=True)
+    dest = Path(hf_hub_download(
+        repo, filename, revision=sha, token=token, local_dir=model_dir,
+        tqdm_class=ModelDownloadProgress,
+    ))
     if dest.stat().st_size != size:
         raise SystemExit(f'Incomplete download: {filename}')
+    print(f'[{index}/{len(plan)}] Ready: {filename} (100%; downloaded or reused from cache)', flush=True)
     manifest.append(dict(repo=repo, filename=filename, revision=sha, bytes=size))
 
 # Preserve the user's original workflow when installing again.
