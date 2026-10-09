@@ -143,17 +143,21 @@ tail -n 80 /workspace/comfyui-ltx25/logs/server.log
 curl -fsS http://127.0.0.1:8188/system_stats
 ```
 
-通过 RunPod 的 8188 HTTP Service 打开 ComfyUI，在 Workflows 中打开：
+通过 RunPod 的 8188 HTTP Service 打开 ComfyUI，在 Workflows 中打开（`BF16` 安装对应 `-BF16.json`）：
 
 ```text
-LTX-2.5-T2V-INT8.json
+LTX-2.5-T2V-INT8.json     # 文生视频
+LTX-2.5-I2V-INT8.json     # 图生视频：在 Load Image 节点上传首帧图片
+LTX-2.5-FLF2V-INT8.json   # 首尾帧生视频：上传首帧和尾帧两张图片
 ```
 
-工作流文件位于：
+三个工作流来自同一个官方模板包，共用同一套模型，不需要额外下载。工作流文件位于：
 
 ```text
-/workspace/comfyui-ltx25/data/user/default/workflows/LTX-2.5-T2V-INT8.json
+/workspace/comfyui-ltx25/data/user/default/workflows/
 ```
+
+已用旧版脚本安装过的环境，重新执行一次 `install` 即可补上 I2V/FLF2V 工作流（模型和依赖会直接复用）。
 
 首次测试建议 3 秒、0.4 megapixels、关闭 Prompt Enhance、单个视频。输出保存在：
 
@@ -162,6 +166,8 @@ LTX-2.5-T2V-INT8.json
 ```
 
 模型下载时会显示当前文件序号、百分比、已下载/总大小、速度和预计剩余时间。Xet 存储的文件只显示写入磁盘的进度（按真实文件大小计算），不显示总量只是估算的网络传输进度条。交互终端原地刷新；RunPod 启动日志等非交互输出在下载进度更新时约每5秒记录一行。复用缓存的文件直接显示 `Ready`，不显示虚构的下载速度。
+
+模型文件均存储在 Hugging Face Xet 上，`hf_xet` 本身就是多连接并发下载；脚本默认开启 `HF_XET_HIGH_PERFORMANCE=1` 以提高并发，若内存或 CPU 紧张可设为 `0`。
 
 模型下载和 CUDA 自检成功不代表视频生成已经完整验收。
 

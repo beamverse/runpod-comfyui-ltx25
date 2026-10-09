@@ -230,6 +230,9 @@ PY
 )
 export LTX_TEMPLATE="$template"
 log "Downloading LTX-2.5 ${LTX_VARIANT^^} models (existing Hub downloads are reused)"
+# All model files are Xet-backed; hf_xet already fetches chunks concurrently.
+# High-performance mode raises that concurrency for fast datacenter links.
+export HF_XET_HIGH_PERFORMANCE=${HF_XET_HIGH_PERFORMANCE:-1}
 "$INSTALL_ROOT/bootstrap/bin/python" - <<'PY'
 import json, os, shutil, sys
 from pathlib import Path, PurePosixPath
@@ -276,7 +279,6 @@ class ModelDownloadProgress(tqdm):
 
 root = Path(os.environ['INSTALL_ROOT'])
 variant = os.environ['LTX_VARIANT']
-workflow = json.loads(Path(os.environ['LTX_TEMPLATE']).read_text())
 # (bf16, int8) file pairs for the transformer, text encoder and prompt enhancer.
 # The upstream template has shipped either precision, so map both directions.
 pairs = [
@@ -297,7 +299,15 @@ def replace(value):
     if isinstance(value, dict):
         return {k: replace(v) for k, v in value.items()}
     return value
-workflow = replace(workflow)
+
+# T2V is required; the image-to-video and first/last-frame templates ship in the
+# same package, use a subset of its models, and are added when present.
+template_dir = Path(os.environ['LTX_TEMPLATE']).parent
+workflows = {}
+for kind in ('t2v', 'i2v', 'flf2v'):
+    path = template_dir / f'video_ltx2_5_{kind}.json'
+    if path.exists():
+        workflows[kind] = replace(json.loads(path.read_text()))
 
 models = {}
 def collect(value):
@@ -310,7 +320,8 @@ def collect(value):
     elif isinstance(value, list):
         for item in value:
             collect(item)
-collect(workflow)
+for workflow in workflows.values():
+    collect(workflow)
 if not models:
     raise SystemExit('The template has no model download metadata; refusing an incomplete setup.')
 
@@ -374,18 +385,22 @@ for index, (repo, filename, sha, size) in enumerate(plan, start=1):
     print(f'[{index}/{len(plan)}] Ready: {filename} (100%; downloaded or reused from cache)', flush=True)
     manifest.append(dict(repo=repo, filename=filename, revision=sha, bytes=size))
 
-# Preserve the user's original workflow when installing again.
-target = root / f'data/user/default/workflows/LTX-2.5-T2V-{variant.upper()}.json'
-if target.exists():
-    target = target.with_name(f'LTX-2.5-T2V-{variant.upper()}.upstream.json')
-tmp = target.with_suffix('.json.tmp')
-tmp.write_text(json.dumps(workflow, ensure_ascii=False, indent=2) + '\n')
-tmp.replace(target)
+# Preserve the user's original workflows when installing again.
+targets = []
+for kind, workflow in workflows.items():
+    stem = f'LTX-2.5-{kind.upper()}-{variant.upper()}'
+    target = root / f'data/user/default/workflows/{stem}.json'
+    if target.exists():
+        target = target.with_name(f'{stem}.upstream.json')
+    tmp = target.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps(workflow, ensure_ascii=False, indent=2) + '\n')
+    tmp.replace(target)
+    targets.append(target.name)
 manifest_path = root / 'models-manifest.json'
 tmp = manifest_path.with_suffix('.json.tmp')
 tmp.write_text(json.dumps(manifest, indent=2) + '\n')
 tmp.replace(manifest_path)
-print(f'{len(plan)} model files ready. Workflow: {target}')
+print(f'{len(plan)} model files ready. Workflows in {target.parent}: {", ".join(targets)}')
 PY
 
 unset HF_TOKEN HUGGING_FACE_HUB_TOKEN
