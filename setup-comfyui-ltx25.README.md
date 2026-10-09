@@ -34,6 +34,7 @@ ssh      22     # 可选
 ```text
 INSTALL_ROOT=/workspace/comfyui-ltx25
 COMFYUI_REF=v0.39.0
+LTX_VARIANT=int8                     # 或 bf16，见下文
 LISTEN=0.0.0.0
 PORT=8188
 HF_HOME=/workspace/.cache/huggingface
@@ -55,7 +56,7 @@ HF_TOKEN=<RunPod Secret>             # 首次安装需要
 /workspace/setup-comfyui-ltx25.sh
 ```
 
-并赋予执行权限：
+可选：赋予执行权限（脚本内部始终通过 `bash` 调用自身，没有执行权限也能运行 `startup`）：
 
 ```bash
 chmod +x /workspace/setup-comfyui-ltx25.sh
@@ -75,7 +76,7 @@ bash /workspace/setup-comfyui-ltx25.sh startup
 
 1. 如果镜像存在 `/start.sh`，默认先在后台启动 RunPod 基础服务，以保留 SSH/Jupyter。
 2. 检查 `$INSTALL_ROOT/active-release`。
-3. 第一次启动时自动执行 `install`，因此必须提供 `HF_TOKEN`。
+3. 第一次启动时自动执行 `install`，因此必须提供 `HF_TOKEN`。如果安装失败，脚本不会退出，而是打印错误后保持容器运行（`sleep infinity`），避免 Pod 反复重启，同时保留 SSH/Jupyter 用于排查；修复后手动执行 `install` 或重启 Pod。
 4. 已安装后的 Stop → Start 会跳过安装和模型下载。
 5. 最后以前台进程启动 ComfyUI，使 Pod 能正确跟踪主服务。
 
@@ -160,7 +161,7 @@ LTX-2.5-T2V-INT8.json
 /workspace/comfyui-ltx25/data/output
 ```
 
-模型下载时会显示当前文件序号、百分比、已下载/总大小、速度和预计剩余时间。交互终端原地刷新；RunPod 启动日志等非交互输出在下载进度更新时约每5秒记录一行。复用缓存的文件直接显示 `Ready`，不显示虚构的下载速度。
+模型下载时会显示当前文件序号、百分比、已下载/总大小、速度和预计剩余时间。Xet 存储的文件只显示写入磁盘的进度（按真实文件大小计算），不显示总量只是估算的网络传输进度条。交互终端原地刷新；RunPod 启动日志等非交互输出在下载进度更新时约每5秒记录一行。复用缓存的文件直接显示 `Ready`，不显示虚构的下载速度。
 
 模型下载和 CUDA 自检成功不代表视频生成已经完整验收。
 
@@ -188,9 +189,22 @@ COMFYUI_REF=master bash /workspace/setup-comfyui-ltx25.sh install
 
 安装锁会拒绝一边运行 ComfyUI 一边更新。同一次安装成功后才会更新 `active-release`；随后 `startup`/`start` 会启动这个激活版本。
 
-源码通过 `git clone/fetch/worktree` 获取，每个提交单独保存；脚本不会重置或覆盖用户修改，也不会自动删除旧版本。模型共用一个目录，Hugging Face 下载缓存允许复用完整文件并恢复中断下载。依赖安装或模型下载失败时不会切换当前激活版本，但更新同一提交的依赖不具备事务级回滚能力。
+源码通过 `git clone/fetch/worktree` 获取，每个提交单独保存；脚本不会重置或覆盖用户修改，也不会自动删除旧版本。模型共用一个目录，Hugging Face 下载缓存允许复用完整文件并恢复中断下载。依赖安装或模型下载失败时不会切换当前激活版本，但更新同一提交的依赖不具备事务级回滚能力。重复安装同一版本时不会升级已安装的 PyTorch；新的 ComfyUI 版本使用新的 venv，会安装当时最新的 CUDA 13.0 PyTorch。
 
 旧版若不包含 LTX-2.5 模板会明确失败。ComfyUI 前端和模板使用其 `requirements.txt` 指定的匹配依赖，不单独强制升级到不匹配版本。
+
+## 完整精度（BF16）版本
+
+默认安装 INT8 量化模型（`LTX_VARIANT=int8`），适合 32 GB 显存。如需官方模板原始的 BF16 完整精度模型（22B 主模型、Gemma 4 12B 文本编码器和 Prompt Enhancer 均为 BF16）：
+
+```bash
+LTX_VARIANT=bf16 bash /workspace/setup-comfyui-ltx25.sh install
+```
+
+- 工作流保存为 `LTX-2.5-T2V-BF16.json`，与 INT8 工作流并存；两套模型共用 `data/models`，可以同时保留。
+- BF16 权重总量远大于 32 GB 显存，ComfyUI 会把部分权重放到系统内存，需要明显更多的内存，生成速度也更慢。建议使用更大显存的 GPU（如 80 GB 以上），或准备充足的系统内存。
+- 需要额外约数十 GB 磁盘空间；脚本会在下载前按实际文件大小检查剩余空间。
+- `startup` 只在首次启动时安装。要在已有安装上加装 BF16，请停止 ComfyUI 后手动执行上面的命令。
 
 ## 自定义目录、端口和 ComfyUI 参数
 
@@ -231,7 +245,7 @@ SSH 公钥更建议添加到 RunPod Account 的 SSH Keys，而不是硬编码进
 ## 安装内容和边界
 
 - 独立 Python 3.12、CUDA 13.0 版 PyTorch、ComfyUI 及其匹配依赖。
-- 从已安装模板包中提取官方 LTX-2.5 文生视频工作流，将 BF16 主模型和文本编码器替换为 INT8 版本，Prompt Enhancer 也使用 INT8。
+- 从已安装模板包中提取官方 LTX-2.5 文生视频工作流；默认（`LTX_VARIANT=int8`）将 BF16 主模型和文本编码器替换为 INT8 版本，Prompt Enhancer 也使用 INT8；`LTX_VARIANT=bf16` 保持官方模板原样。
 - 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；不安装 Manager 或额外 custom nodes，基础工作流使用 ComfyUI 原生节点。
 - 检查 Hugging Face 授权、下载前剩余空间、模型文件大小、Python 依赖和实际 CUDA BF16 矩阵运算。
 - 记录源码 commit、已安装依赖版本和模型仓库 revision，便于复查。

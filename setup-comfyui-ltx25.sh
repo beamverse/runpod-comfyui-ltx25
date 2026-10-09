@@ -11,13 +11,14 @@ trap 'printf "ERROR: setup stopped at line %s; correct the problem and rerun.\n"
 usage() {
     printf '%s\n' \
       'Usage: bash setup-comfyui-ltx25.sh [install|start|startup|help] [ComfyUI arguments...]' \
-      'install (default): install/update ComfyUI + CUDA 13.0 PyTorch + LTX-2.5 INT8' \
+      'install (default): install/update ComfyUI + CUDA 13.0 PyTorch + LTX-2.5 models' \
       'start: run the last successfully installed release; no token needed' \
       'startup: RunPod boot mode; start base services, install once if needed, then start ComfyUI' \
       'Environment:' \
       '  HF_TOKEN          Hugging Face read token; hidden prompt if omitted' \
       '  INSTALL_ROOT      Default: /workspace/comfyui-ltx25 (persistent volume)' \
       '  COMFYUI_REF       latest (default), master, or a release tag such as v0.32.0' \
+      '  LTX_VARIANT       int8 (default, fits 32GB VRAM) or bf16 (full precision, upstream template)' \
       '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
       '  RUNPOD_START_BASE_SERVICES  Default: 1; run /start.sh in startup mode when present' \
       'Requires a GPU-enabled Linux x86_64 container and a CUDA 13-capable host driver.' \
@@ -49,14 +50,21 @@ if [[ "$action" == startup ]]; then
     script_self=$(readlink -f "$0")
     [[ -f "$script_self" ]] || die 'Cannot resolve installer script path.'
 
+    # Invoke through bash: the script may lack the executable bit after upload/clone.
     if [[ ! -f "$INSTALL_ROOT/active-release" ]]; then
         log 'First boot: no active release found; running one-time installation'
-        "$script_self" install
+        if ! bash "$script_self" install; then
+            # Exiting would stop the container, kill SSH/Jupyter and restart into
+            # the same failure. Stay alive so the problem can be inspected.
+            printf 'ERROR: first-boot installation failed. Pod kept alive for SSH/Jupyter;\n' >&2
+            printf 'fix the cause, then rerun: bash %q install, or restart the Pod.\n' "$script_self" >&2
+            exec sleep infinity
+        fi
     else
         log 'Existing installation found; skipping install'
     fi
 
-    exec "$script_self" start "$@"
+    exec bash "$script_self" start "$@"
 fi
 
 if [[ "$action" == start ]]; then
@@ -95,6 +103,9 @@ nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
 driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n 1)
 [[ ${driver%%.*} =~ ^[0-9]+$ ]] || die 'Cannot determine NVIDIA driver version.'
 (( ${driver%%.*} >= 580 )) || die 'CUDA 13.0 needs an R580 or newer host driver. Select another Pod host.'
+LTX_VARIANT=${LTX_VARIANT:-int8}
+[[ "$LTX_VARIANT" == int8 || "$LTX_VARIANT" == bf16 ]] || die 'LTX_VARIANT must be int8 or bf16.'
+export LTX_VARIANT
 
 if [[ -z ${HF_TOKEN:-} ]]; then
     [[ -t 0 ]] || die 'Set HF_TOKEN for non-interactive installation.'
@@ -116,13 +127,17 @@ INSTALL_ROOT=$(realpath "$INSTALL_ROOT")
 export INSTALL_ROOT
 exec 9>"$INSTALL_ROOT/setup.lock"
 flock -n 9 || die 'Stop the ComfyUI process started by this script before installing/updating.'
+# Git may detach background gc/maintenance; keep it from inheriting the lock fd,
+# or the lock would outlive this installer and block the following start.
+git() { command git "$@" 9>&-; }
 mkdir -p "$INSTALL_ROOT"/{releases,data/models,data/custom_nodes,data/user/default/workflows,logs}
 df -h "$INSTALL_ROOT"
 
 # Separate bootstrap tools from ComfyUI dependencies; use Python 3.12 even
 # when the container's system Python is older.
 python3 -m venv "$INSTALL_ROOT/bootstrap"
-"$INSTALL_ROOT/bootstrap/bin/python" -m pip install --upgrade pip uv huggingface_hub
+# hf_hub_download(tqdm_class=...) needs huggingface_hub >= 1.1.
+"$INSTALL_ROOT/bootstrap/bin/python" -m pip install --upgrade pip uv 'huggingface_hub>=1.1,<3'
 export UV_PYTHON_INSTALL_DIR="$INSTALL_ROOT/python"
 export UV_CACHE_DIR="$INSTALL_ROOT/cache/uv"
 uv="$INSTALL_ROOT/bootstrap/bin/uv"
@@ -132,10 +147,11 @@ log 'Checking model access before installing the GPU packages'
 "$INSTALL_ROOT/bootstrap/bin/python" - <<'PY'
 import os
 from huggingface_hub import get_hf_file_metadata, hf_hub_url
+quant = {'int8': 'comfy-int8-convrot', 'bf16': 'bf16'}[os.environ['LTX_VARIANT']]
 try:
     get_hf_file_metadata(hf_hub_url(
         'Lightricks/LTX-2.5',
-        'diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors'
+        f'diffusion_models/ltx-2.5-22b-distilled-transformer-{quant}.safetensors'
     ), token=os.environ['HF_TOKEN'])
 except Exception as exc:
     raise SystemExit(f'Model access failed ({type(exc).__name__}). Accept the LTX-2.5 license '
@@ -176,7 +192,9 @@ if [[ ! -x "$app/.venv/bin/python" ]]; then
 fi
 py="$app/.venv/bin/python"
 log 'Installing CUDA 13.0 PyTorch and release-matched ComfyUI requirements'
-"$uv" pip install --python "$py" --upgrade torch torchvision torchaudio \
+# No --upgrade: reinstalling a release must not swap the torch build under the
+# active ComfyUI. New releases get a fresh venv and thus the current torch.
+"$uv" pip install --python "$py" torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu130
 # Keep the normal package index from replacing the selected CUDA wheels.
 "$py" - <<'PY' > "$app/torch-constraints.txt"
@@ -211,7 +229,7 @@ raise SystemExit('This release has no LTX-2.5 T2V template. Try COMFYUI_REF=mast
 PY
 )
 export LTX_TEMPLATE="$template"
-log 'Downloading LTX-2.5 models (existing Hub downloads are reused)'
+log "Downloading LTX-2.5 ${LTX_VARIANT^^} models (existing Hub downloads are reused)"
 "$INSTALL_ROOT/bootstrap/bin/python" - <<'PY'
 import json, os, shutil, sys
 from pathlib import Path, PurePosixPath
@@ -223,9 +241,16 @@ class ModelDownloadProgress(tqdm):
     def __init__(self, *args, **kwargs):
         # Force progress on, including in RunPod's non-interactive startup logs.
         kwargs.pop('name', None)
+        kwargs.pop('position', None)
+        # huggingface_hub 2.x adds a second Xet bar for network bytes whose total is
+        # only an estimate (dedup/compression), so its percentage and ETA mislead.
+        # Hide it; the reconstruction bar counts bytes on disk against the real size.
+        desc = kwargs.get('desc') or ''
+        transfer = desc.endswith(': downloading bytes')
+        kwargs['desc'] = desc.removesuffix(': reconstructing file')
         self.log_output = not sys.stderr.isatty()
         kwargs.update(
-            file=sys.stderr, disable=False, leave=True,
+            file=sys.stderr, disable=transfer, leave=True,
             mininterval=5.0 if self.log_output else 0.5, miniters=1,
             unit='B', unit_scale=True, unit_divisor=1024,
             bar_format='{desc}: {percentage:5.1f}% | {n_fmt}/{total_fmt} '
@@ -242,15 +267,25 @@ class ModelDownloadProgress(tqdm):
             return
         return super().display(msg=msg, pos=pos)
 
+    def close(self):
+        if self.log_output and not self.disable:
+            # Print the final line here; leave=True would add a blank line after it.
+            self.display()
+            self.leave = False
+        super().close()
+
 root = Path(os.environ['INSTALL_ROOT'])
+variant = os.environ['LTX_VARIANT']
 workflow = json.loads(Path(os.environ['LTX_TEMPLATE']).read_text())
+# The upstream template references the BF16 models; INT8 swaps in the quantized
+# transformer, text encoder and prompt enhancer.
 replacements = {
     'ltx-2.5-22b-distilled-transformer-bf16.safetensors':
         'ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors',
     'gemma4-12b-with-proj-ltx-2.5-bf16.safetensors':
         'gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors',
     'gemma4_e2b_it_bf16.safetensors': 'gemma4_e2b_it_int8_convrot.safetensors',
-}
+} if variant == 'int8' else {}
 def replace(value):
     if isinstance(value, str):
         for old, new in replacements.items():
@@ -305,9 +340,10 @@ for model in models.values():
     plan.append((repo, filename, sha, info.size))
 
 names = {PurePosixPath(item[1]).name for item in plan}
+quant = {'int8': 'comfy-int8-convrot', 'bf16': 'bf16'}[variant]
 for required in (
-    'ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors',
-    'gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors',
+    f'ltx-2.5-22b-distilled-transformer-{quant}.safetensors',
+    f'gemma4-12b-with-proj-ltx-2.5-{quant}.safetensors',
     'ltx-2.5-video-vae-bf16.safetensors',
     'ltx-2.5-audio-vae-bf16.safetensors',
     'ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors',
@@ -338,9 +374,9 @@ for index, (repo, filename, sha, size) in enumerate(plan, start=1):
     manifest.append(dict(repo=repo, filename=filename, revision=sha, bytes=size))
 
 # Preserve the user's original workflow when installing again.
-target = root / 'data/user/default/workflows/LTX-2.5-T2V-INT8.json'
+target = root / f'data/user/default/workflows/LTX-2.5-T2V-{variant.upper()}.json'
 if target.exists():
-    target = target.with_name('LTX-2.5-T2V-INT8.upstream.json')
+    target = target.with_name(f'LTX-2.5-T2V-{variant.upper()}.upstream.json')
 tmp = target.with_suffix('.json.tmp')
 tmp.write_text(json.dumps(workflow, ensure_ascii=False, indent=2) + '\n')
 tmp.replace(target)
