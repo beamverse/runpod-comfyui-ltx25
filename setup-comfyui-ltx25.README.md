@@ -1,6 +1,6 @@
 # RunPod：ComfyUI + LTX-2.5 安装与自动启动
 
-适用环境：Ubuntu/Debian、Linux x86_64、root、已透传的 NVIDIA GPU。默认针对 RTX 5090 安装 CUDA 13.0 版 PyTorch，要求宿主机驱动支持 CUDA 13.0。脚本不安装宿主机驱动，也不要求容器预装 CUDA Toolkit。
+适用环境：Ubuntu/Debian、Linux x86_64、root、已透传的 NVIDIA GPU。默认针对 RTX 5090，按宿主机驱动自动选择 PyTorch 的 CUDA 版本（见“宿主机驱动与 PyTorch CUDA 版本”），最低要求 R525 驱动。脚本不安装宿主机驱动，也不要求容器预装 CUDA Toolkit。
 
 建议使用 Ubuntu 24.04 GPU 容器、32 GB 显存、约 64 GB 系统内存，并将至少 150–200 GB 持久化存储挂载到 `/workspace`。在 RunPod 暴露 HTTP 8188（ComfyUI）；如果基础镜像提供 Jupyter/SSH，可同时暴露 HTTP 8888 和 TCP 22。真正的 Docker `scratch` 镜像没有 Bash/apt，不能运行此脚本；这里的“空白容器”指尚未安装 ComfyUI 的 Ubuntu/Debian 容器。
 
@@ -35,6 +35,7 @@ ssh      22     # 可选
 INSTALL_ROOT=/workspace/comfyui-ltx25
 COMFYUI_REF=v0.39.0
 LTX_VARIANT=int8                     # 或 bf16，见下文
+TORCH_CUDA=auto                      # 或 cu130 / cu128 / cu126，一般保持 auto
 LISTEN=0.0.0.0
 PORT=8188
 HF_HOME=/workspace/.cache/huggingface
@@ -195,9 +196,24 @@ COMFYUI_REF=master bash /workspace/setup-comfyui-ltx25.sh install
 
 安装锁会拒绝一边运行 ComfyUI 一边更新。同一次安装成功后才会更新 `active-release`；随后 `startup`/`start` 会启动这个激活版本。
 
-源码通过 `git clone/fetch/worktree` 获取，每个提交单独保存；脚本不会重置或覆盖用户修改，也不会自动删除旧版本。模型共用一个目录，Hugging Face 下载缓存允许复用完整文件并恢复中断下载。依赖安装或模型下载失败时不会切换当前激活版本，但更新同一提交的依赖不具备事务级回滚能力。重复安装同一版本时不会升级已安装的 PyTorch；新的 ComfyUI 版本使用新的 venv，会安装当时最新的 CUDA 13.0 PyTorch。
+源码通过 `git clone/fetch/worktree` 获取，每个提交单独保存；脚本不会重置或覆盖用户修改，也不会自动删除旧版本。模型共用一个目录，Hugging Face 下载缓存允许复用完整文件并恢复中断下载。依赖安装或模型下载失败时不会切换当前激活版本，但更新同一提交的依赖不具备事务级回滚能力。重复安装同一版本时不会升级已安装的 PyTorch；新的 ComfyUI 版本使用新的 venv，会安装当时最新的 PyTorch。例外：已安装的 PyTorch 需要比本机更新的驱动（例如持久盘换到了驱动更旧的宿主机），或用 `TORCH_CUDA` 明确指定了其他版本时，会先卸载再重装匹配的版本。
 
 旧版若不包含 LTX-2.5 模板会明确失败。ComfyUI 前端和模板使用其 `requirements.txt` 指定的匹配依赖，不单独强制升级到不匹配版本。
+
+## 宿主机驱动与 PyTorch CUDA 版本
+
+RunPod 同一种 GPU 也可能分到不同驱动版本的宿主机，容器内无法升级驱动。脚本读取 `nvidia-smi` 的驱动版本，自动选择能运行的最新 CUDA 版 PyTorch：
+
+| 宿主机驱动 | PyTorch 源 | 说明 |
+|---|---|---|
+| R580+ | `cu130` | 默认目标，RTX 5090 推荐 |
+| R570–R579 | `cu128` | RTX 50 系（Blackwell）最低要求 |
+| R525–R569 | `cu126` | 通过 CUDA 12 小版本兼容运行，适用于 A100、H100、L40S、RTX 4090 等；例如 RunPod A100 PCIe 常见的 R550 主机 |
+| 低于 R525 | — | 安装失败，请换宿主机 |
+
+也可以用 `TORCH_CUDA=cu126|cu128|cu130` 手动指定；指定版本超过驱动支持范围时脚本会拒绝安装。RTX 50 系不能使用 `cu126`。
+
+持久盘在不同宿主机之间挂载时：`startup` 发现已安装的 PyTorch 需要比本机更新的驱动，会自动重新执行 `install` 换成匹配的 PyTorch（模型复用已下载文件，仍需要 `HF_TOKEN`）；`start` 则直接报错并提示重新安装。
 
 ## 完整精度（BF16）版本
 
@@ -209,7 +225,7 @@ LTX_VARIANT=bf16 bash /workspace/setup-comfyui-ltx25.sh install
 
 - 工作流保存为 `LTX-2.5-T2V-BF16.json`，与 INT8 工作流并存；两套模型共用 `data/models`，可以同时保留。
 - 模型下载量约 76 GiB（INT8 约 42 GiB）；其中主模型 39 GiB、文本编码器 24 GiB、Prompt Enhancer 10 GiB。脚本会在下载前按实际文件大小检查剩余空间。
-- BF16 权重远大于 32 GB 显存；在 RTX 5090 上 ComfyUI 会把部分权重放到系统内存，需要明显更多的内存，速度也更慢。建议使用 96 GB 显存的 RTX PRO 6000 或 80 GB 以上的 GPU。
+- BF16 权重远大于 32 GB 显存；在 RTX 5090 上 ComfyUI 会把部分权重放到系统内存，需要明显更多的内存，速度也更慢。建议使用 96 GB 显存的 RTX PRO 6000 或 80 GB 以上的 GPU（如 A100 80GB）。
 - `startup` 只在首次启动时安装。要在已有安装上加装 BF16，请停止 ComfyUI 后手动执行上面的命令。
 
 ## 自定义目录、端口和 ComfyUI 参数
@@ -250,7 +266,7 @@ SSH 公钥更建议添加到 RunPod Account 的 SSH Keys，而不是硬编码进
 
 ## 安装内容和边界
 
-- 独立 Python 3.12、CUDA 13.0 版 PyTorch、ComfyUI 及其匹配依赖。
+- 独立 Python 3.12、按驱动选择 CUDA 版本的 PyTorch、ComfyUI 及其匹配依赖。
 - 从已安装模板包中提取官方 LTX-2.5 文生视频工作流，按 `LTX_VARIANT` 把主模型、文本编码器和 Prompt Enhancer 统一替换为 INT8（默认）或 BF16 版本；上游模板无论发布哪种精度都能处理。
 - 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；不安装 Manager 或额外 custom nodes，基础工作流使用 ComfyUI 原生节点。
 - 检查 Hugging Face 授权、下载前剩余空间、模型文件大小、Python 依赖和实际 CUDA BF16 矩阵运算。

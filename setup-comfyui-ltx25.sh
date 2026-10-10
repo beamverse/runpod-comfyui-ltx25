@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RunPod / Ubuntu or Debian / NVIDIA RTX 5090. See the companion README.
+# RunPod / Ubuntu or Debian / NVIDIA GPU (RTX 5090, A100, ...). See the companion README.
 # Source operations: git clone/fetch/worktree (isolated installer-owned releases).
 set +x
 set -Eeuo pipefail
@@ -11,7 +11,7 @@ trap 'printf "ERROR: setup stopped at line %s; correct the problem and rerun.\n"
 usage() {
     printf '%s\n' \
       'Usage: bash setup-comfyui-ltx25.sh [install|start|startup|help] [ComfyUI arguments...]' \
-      'install (default): install/update ComfyUI + CUDA 13.0 PyTorch + LTX-2.5 models' \
+      'install (default): install/update ComfyUI + CUDA PyTorch + LTX-2.5 models' \
       'start: run the last successfully installed release; no token needed' \
       'startup: RunPod boot mode; start base services, install once if needed, then start ComfyUI' \
       'Environment:' \
@@ -21,8 +21,47 @@ usage() {
       '  LTX_VARIANT       int8 (default, fits 32GB VRAM) or bf16 (full precision, upstream template)' \
       '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
       '  RUNPOD_START_BASE_SERVICES  Default: 1; run /start.sh in startup mode when present' \
-      'Requires a GPU-enabled Linux x86_64 container and a CUDA 13-capable host driver.' \
+      '  TORCH_CUDA        auto (default), cu130, cu128 or cu126 PyTorch build' \
+      'Requires a GPU-enabled Linux x86_64 container and an R525 or newer host driver' \
+      '(R580+ installs CUDA 13.0 PyTorch; R570+ is required for RTX 50-series GPUs).' \
       'Accept the Lightricks/LTX-2.5 license on Hugging Face before installation.'
+}
+
+# PyTorch CUDA build selection. CUDA 12.x wheels also run on R525+ drivers via
+# minor-version compatibility (e.g. RunPod A100 hosts on R550); Blackwell GPUs
+# such as the RTX 5090 need cu128 or newer and therefore an R570+ driver.
+host_driver_major() {
+    local driver
+    driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n 1) || return 1
+    driver=${driver%%.*}
+    [[ "$driver" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$driver"
+}
+min_driver_for_torch_cuda() {
+    case "$1" in
+        cu130) echo 580 ;;
+        cu128) echo 570 ;;
+        cu126) echo 525 ;;
+        *) return 1 ;;
+    esac
+}
+torch_cuda_for_driver() {
+    local tag
+    for tag in cu130 cu128 cu126; do
+        if (( $1 >= $(min_driver_for_torch_cuda "$tag") )); then echo "$tag"; return 0; fi
+    done
+    return 1
+}
+# Prints why the release's PyTorch cannot run on this host (e.g. a persistent
+# volume installed on an R580 host, now attached to an R550 host).
+torch_driver_mismatch() {
+    local tag need driver
+    tag=$("$1/.venv/bin/python" -c \
+        'from importlib.metadata import version; print(version("torch").partition("+")[2])' 2>/dev/null) || return 1
+    need=$(min_driver_for_torch_cuda "$tag") || return 1
+    driver=$(host_driver_major) || return 1
+    (( driver < need )) || return 1
+    printf 'Installed PyTorch (%s) needs an R%s+ host driver; this host has R%s.\n' "$tag" "$need" "$driver"
 }
 
 action=${1:-install}
@@ -51,8 +90,15 @@ if [[ "$action" == startup ]]; then
     [[ -f "$script_self" ]] || die 'Cannot resolve installer script path.'
 
     # Invoke through bash: the script may lack the executable bit after upload/clone.
+    need_install=
     if [[ ! -f "$INSTALL_ROOT/active-release" ]]; then
         log 'First boot: no active release found; running one-time installation'
+        need_install=1
+    elif mismatch=$(torch_driver_mismatch "$INSTALL_ROOT/releases/$(<"$INSTALL_ROOT/active-release")"); then
+        log "$mismatch Reinstalling a matching PyTorch build"
+        need_install=1
+    fi
+    if [[ -n $need_install ]]; then
         if ! bash "$script_self" install; then
             # Exiting would stop the container, kill SSH/Jupyter and restart into
             # the same failure. Stay alive so the problem can be inspected.
@@ -73,6 +119,9 @@ if [[ "$action" == start ]]; then
     [[ "$release" =~ ^[a-f0-9]{40}$ ]] || die 'Invalid active-release file.'
     app="$INSTALL_ROOT/releases/$release"
     [[ -x "$app/.venv/bin/python" && -f "$app/main.py" ]] || die 'Installed release is incomplete.'
+    if mismatch=$(torch_driver_mismatch "$app"); then
+        die "$mismatch Rerun install on this host, or select a host with a newer driver."
+    fi
     exec 9>"$INSTALL_ROOT/setup.lock"
     flock -n 9 || die 'An installation or ComfyUI process already holds the lock.'
     # ComfyUI scans this directory before starting the server, even when empty.
@@ -100,9 +149,17 @@ fi
 command -v apt-get >/dev/null || die 'Use an Ubuntu/Debian container with apt-get.'
 command -v nvidia-smi >/dev/null || die 'GPU is not exposed. Deploy a GPU-enabled Pod first.'
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
-driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n 1)
-[[ ${driver%%.*} =~ ^[0-9]+$ ]] || die 'Cannot determine NVIDIA driver version.'
-(( ${driver%%.*} >= 580 )) || die 'CUDA 13.0 needs an R580 or newer host driver. Select another Pod host.'
+driver=$(host_driver_major) || die 'Cannot determine NVIDIA driver version.'
+TORCH_CUDA=${TORCH_CUDA:-auto}
+torch_cuda_explicit=
+if [[ "$TORCH_CUDA" == auto ]]; then
+    TORCH_CUDA=$(torch_cuda_for_driver "$driver") || die "Host driver R$driver is too old; R525 or newer is required. Select another Pod host."
+else
+    need=$(min_driver_for_torch_cuda "$TORCH_CUDA") || die 'TORCH_CUDA must be auto, cu130, cu128 or cu126.'
+    (( driver >= need )) || die "TORCH_CUDA=$TORCH_CUDA needs an R$need or newer host driver; this host has R$driver."
+    torch_cuda_explicit=1
+fi
+log "Host driver R$driver: using the $TORCH_CUDA PyTorch build"
 LTX_VARIANT=${LTX_VARIANT:-int8}
 [[ "$LTX_VARIANT" == int8 || "$LTX_VARIANT" == bf16 ]] || die 'LTX_VARIANT must be int8 or bf16.'
 export LTX_VARIANT
@@ -191,11 +248,19 @@ if [[ ! -x "$app/.venv/bin/python" ]]; then
     "$uv" venv --python 3.12 "$app/.venv"
 fi
 py="$app/.venv/bin/python"
-log 'Installing CUDA 13.0 PyTorch and release-matched ComfyUI requirements'
+log "Installing $TORCH_CUDA PyTorch and release-matched ComfyUI requirements"
+# Swap an installed torch only when its CUDA build cannot run on this host
+# (venv built on a newer-driver host) or TORCH_CUDA explicitly asks for another.
+installed_torch=$("$py" -c 'from importlib.metadata import version; print(version("torch"))' 2>/dev/null) || installed_torch=
+if [[ -n "$installed_torch" && "$installed_torch" != *"+$TORCH_CUDA" ]] &&
+   { [[ -n $torch_cuda_explicit ]] || mismatch=$(torch_driver_mismatch "$app"); }; then
+    log "Replacing PyTorch $installed_torch with the $TORCH_CUDA build"
+    "$uv" pip uninstall --python "$py" torch torchvision torchaudio
+fi
 # No --upgrade: reinstalling a release must not swap the torch build under the
 # active ComfyUI. New releases get a fresh venv and thus the current torch.
 "$uv" pip install --python "$py" torch torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu130
+    --index-url "https://download.pytorch.org/whl/$TORCH_CUDA"
 # Keep the normal package index from replacing the selected CUDA wheels.
 "$py" - <<'PY' > "$app/torch-constraints.txt"
 from importlib.metadata import version
