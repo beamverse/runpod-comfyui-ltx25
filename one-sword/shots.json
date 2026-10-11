@@ -1,5 +1,5 @@
 {
-  "keyframe_dir": "古风水墨动画风格",
+  "keyframe_dir": "assets",
   "output_prefix": "onesword",
   "width": 1280,
   "height": 720,
@@ -21,7 +21,7 @@
     },
     {
       "id": "2A", "mode": "i2v", "first": "K2A.png", "duration": 4, "seed": 1201,
-      "prompt": "Inside the old tea pavilion at night. The swordsman in black steps in from the rain and stops at the entrance. The woman in white sits calmly at the table, a white oil-paper umbrella beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and footsteps on wet wood."
+      "prompt": "Inside the old tea pavilion at night. The swordsman in black has just stepped in from the rain and stands near the entrance, water dripping from his robe and hat; he slowly turns his gaze toward the table. The woman in white sits calmly at the table, the white oil-paper umbrella beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and water dripping onto wet wood."
     },
     {
       "id": "2B", "mode": "i2v", "first": "K2B.png", "duration": 2, "seed": 1202,
@@ -61,11 +61,11 @@
     },
     {
       "id": "4B", "mode": "i2v", "first": "K4B.png", "duration": 2, "seed": 1402,
-      "prompt": "Close-up of the swordsman's palm. He brings the two halves of the jade pendant together; they fit into one complete pendant and glow faintly. Locked camera. Sound of a soft jade click."
+      "prompt": "Close-up of the swordsman's palm. The two halves of the jade pendant rest joined in his hand as one complete pendant. A faint glow spreads slowly along the seam and pulses softly, the tassel sways in the breeze, his fingers close slightly around it. Locked camera. Sound of a soft resonant jade chime."
     },
     {
       "id": "4C", "mode": "i2v", "first": "K4C.png", "duration": 3, "seed": 1403,
-      "prompt": "Flashback, warm orange firelight. A manor burns at night, flames and ink smoke rising. A young woman in white pushes a small boy out through a burning doorway; he falls onto the ground outside and looks back as she stays inside the fire. Locked camera. Sound of roaring fire and crackling wood."
+      "prompt": "Flashback, warm orange firelight. The small boy has just been pushed out of the burning manor and lies on the ground outside. He pushes himself up and looks back at the young woman in white standing in the burning doorway, her hand still stretched toward him, as flames and ink smoke rise around her and burning beams fall. Locked camera. Sound of roaring fire and crackling wood."
     },
     {
       "id": "4D", "mode": "i2v", "first": "K4D.png", "duration": 2, "seed": 1404,

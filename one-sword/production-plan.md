@@ -139,7 +139,7 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 **2A｜I2V｜K2A｜4 秒**
 
 ```text
-[风格句] Inside the old tea pavilion at night. The swordsman in black steps in from the rain and stops at the entrance. The woman in white sits calmly at the table, a white oil-paper umbrella beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and footsteps on wet wood.
+[风格句] Inside the old tea pavilion at night. The swordsman in black has just stepped in from the rain and stands near the entrance, water dripping from his robe and hat; he slowly turns his gaze toward the table. The woman in white sits calmly at the table, the white oil-paper umbrella beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and water dripping onto wet wood.
 ```
 
 **2B｜I2V｜K2B｜2 秒**
@@ -205,13 +205,13 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 **4B｜I2V｜K4B｜2 秒**
 
 ```text
-[风格句] Close-up of the swordsman's palm. He brings the two halves of the jade pendant together; they fit into one complete pendant and glow faintly. Locked camera. Sound of a soft jade click.
+[风格句] Close-up of the swordsman's palm. The two halves of the jade pendant rest joined in his hand as one complete pendant. A faint glow spreads slowly along the seam and pulses softly, the tassel sways in the breeze, his fingers close slightly around it. Locked camera. Sound of a soft resonant jade chime.
 ```
 
 **4C｜I2V｜K4C｜3 秒（闪回）**
 
 ```text
-[风格句] Flashback, warm orange firelight. A manor burns at night, flames and ink smoke rising. A young woman in white pushes a small boy out through a burning doorway; he falls onto the ground outside and looks back as she stays inside the fire. Locked camera. Sound of roaring fire and crackling wood.
+[风格句] Flashback, warm orange firelight. The small boy has just been pushed out of the burning manor and lies on the ground outside. He pushes himself up and looks back at the young woman in white standing in the burning doorway, her hand still stretched toward him, as flames and ink smoke rise around her and burning beams fall. Locked camera. Sound of roaring fire and crackling wood.
 ```
 
 **4D｜I2V｜K4D｜2 秒（对白）**
@@ -242,7 +242,7 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 
 1. 在 ComfyUI 中打开 `LTX-2.5-I2V-*.json`，菜单 **Workflow → Export (API)**，保存到 `one-sword/api/`，保留原文件名即可（如 `LTX-2.5-I2V-INT8-TE-BF16.json`），脚本会按文件名中的 `I2V` / `FLF2V` 自动识别。
 2. 对 `LTX-2.5-FLF2V-*.json` 做同样操作。同类文件只能放一个，否则用 `--i2v` / `--flf2v` 指定。
-3. 把补做的关键帧放进 `古风水墨动画风格/`，文件名与第 3 节编号一致：`K1B.png`、`K2E-start.png`……
+3. 把补做的关键帧放进 `assets/`，文件名与第 3 节编号一致：`K1B.png`、`K2E-start.png`……
 
 **运行：**
 
