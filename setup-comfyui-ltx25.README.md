@@ -35,6 +35,7 @@ ssh      22     # 可选
 INSTALL_ROOT=/workspace/comfyui-ltx25
 COMFYUI_REF=v0.39.0
 LTX_VARIANT=int8                     # 或 bf16，见下文
+LTX_TEXT_ENCODER=                    # 留空跟随 LTX_VARIANT；可单独设 bf16，见下文
 TORCH_CUDA=auto                      # 或 cu130 / cu128 / cu126，一般保持 auto
 LISTEN=0.0.0.0
 PORT=8188
@@ -227,6 +228,19 @@ LTX_VARIANT=bf16 bash /workspace/setup-comfyui-ltx25.sh install
 - 模型下载量约 76 GiB（INT8 约 42 GiB）；其中主模型 39 GiB、文本编码器 24 GiB、Prompt Enhancer 10 GiB。脚本会在下载前按实际文件大小检查剩余空间。
 - BF16 权重远大于 32 GB 显存；在 RTX 5090 上 ComfyUI 会把部分权重放到系统内存，需要明显更多的内存，速度也更慢。建议使用 96 GB 显存的 RTX PRO 6000 或 80 GB 以上的 GPU（如 A100 80GB）。
 - `startup` 只在首次启动时安装。要在已有安装上加装 BF16，请停止 ComfyUI 后手动执行上面的命令。
+
+## 文本编码器单独使用 BF16
+
+`LTX_TEXT_ENCODER` 可以单独指定 Gemma 4 12B 文本编码器的精度（`int8` 或 `bf16`），不设置时跟随 `LTX_VARIANT`。常见用法是在 RTX 5090 上保留 INT8 主模型、文本编码器改用 BF16：
+
+```bash
+LTX_TEXT_ENCODER=bf16 bash /workspace/setup-comfyui-ltx25.sh install
+```
+
+- 只影响文本编码器；主模型和 Prompt Enhancer 仍按 `LTX_VARIANT`，视频/音频 VAE 和空间放大器始终为 BF16。
+- 文本编码器每次生成只运行一次，ComfyUI 会在采样前按需把它移出显存，BF16 版（约 24 GiB）单独可放入 32 GB 显存；代价是下载量和磁盘占用增加，加载更慢，系统内存压力更大（建议 64 GB 以上）。
+- 精度与 `LTX_VARIANT` 不同时，工作流文件名带后缀，例如 `LTX-2.5-T2V-INT8-TE-BF16.json`，与其他组合的工作流并存。
+- 已有安装上切换：停止 ComfyUI 后用上面的命令重新执行 `install`，已下载的模型会复用。
 
 ## 自定义目录、端口和 ComfyUI 参数
 

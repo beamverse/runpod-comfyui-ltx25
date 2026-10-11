@@ -19,6 +19,7 @@ usage() {
       '  INSTALL_ROOT      Default: /workspace/comfyui-ltx25 (persistent volume)' \
       '  COMFYUI_REF       latest (default), master, or a release tag such as v0.32.0' \
       '  LTX_VARIANT       int8 (default, fits 32GB VRAM) or bf16 (full precision, upstream template)' \
+      '  LTX_TEXT_ENCODER  int8 or bf16 Gemma 4 text encoder; default: same as LTX_VARIANT' \
       '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
       '  RUNPOD_START_BASE_SERVICES  Default: 1; run /start.sh in startup mode when present' \
       '  TORCH_CUDA        auto (default), cu130, cu128 or cu126 PyTorch build' \
@@ -162,7 +163,10 @@ fi
 log "Host driver R$driver: using the $TORCH_CUDA PyTorch build"
 LTX_VARIANT=${LTX_VARIANT:-int8}
 [[ "$LTX_VARIANT" == int8 || "$LTX_VARIANT" == bf16 ]] || die 'LTX_VARIANT must be int8 or bf16.'
-export LTX_VARIANT
+LTX_TEXT_ENCODER=${LTX_TEXT_ENCODER:-$LTX_VARIANT}
+[[ "$LTX_TEXT_ENCODER" == int8 || "$LTX_TEXT_ENCODER" == bf16 ]] || die 'LTX_TEXT_ENCODER must be int8 or bf16.'
+export LTX_VARIANT LTX_TEXT_ENCODER
+log "Models: $LTX_VARIANT transformer, $LTX_TEXT_ENCODER text encoder"
 
 if [[ -z ${HF_TOKEN:-} ]]; then
     [[ -t 0 ]] || die 'Set HF_TOKEN for non-interactive installation.'
@@ -344,16 +348,19 @@ class ModelDownloadProgress(tqdm):
 
 root = Path(os.environ['INSTALL_ROOT'])
 variant = os.environ['LTX_VARIANT']
-# (bf16, int8) file pairs for the transformer, text encoder and prompt enhancer.
-# The upstream template has shipped either precision, so map both directions.
+text_encoder = os.environ['LTX_TEXT_ENCODER']
+# (precision, bf16 file, int8 file) for the transformer, text encoder and prompt
+# enhancer. The upstream template has shipped either precision, so map both directions.
 pairs = [
-    ('ltx-2.5-22b-distilled-transformer-bf16.safetensors',
+    (variant, 'ltx-2.5-22b-distilled-transformer-bf16.safetensors',
      'ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors'),
-    ('gemma4-12b-with-proj-ltx-2.5-bf16.safetensors',
+    (text_encoder, 'gemma4-12b-with-proj-ltx-2.5-bf16.safetensors',
      'gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors'),
-    ('gemma4_e2b_it_bf16.safetensors', 'gemma4_e2b_it_int8_convrot.safetensors'),
+    (variant, 'gemma4_e2b_it_bf16.safetensors', 'gemma4_e2b_it_int8_convrot.safetensors'),
 ]
-replacements = {int8: bf16 for bf16, int8 in pairs} if variant == 'bf16' else dict(pairs)
+replacements = {}
+for precision, bf16, int8 in pairs:
+    replacements.update({int8: bf16} if precision == 'bf16' else {bf16: int8})
 def replace(value):
     if isinstance(value, str):
         for old, new in replacements.items():
@@ -417,10 +424,10 @@ for model in models.values():
     plan.append((repo, filename, sha, info.size))
 
 names = {PurePosixPath(item[1]).name for item in plan}
-quant = {'int8': 'comfy-int8-convrot', 'bf16': 'bf16'}[variant]
+quant = {'int8': 'comfy-int8-convrot', 'bf16': 'bf16'}
 for required in (
-    f'ltx-2.5-22b-distilled-transformer-{quant}.safetensors',
-    f'gemma4-12b-with-proj-ltx-2.5-{quant}.safetensors',
+    f'ltx-2.5-22b-distilled-transformer-{quant[variant]}.safetensors',
+    f'gemma4-12b-with-proj-ltx-2.5-{quant[text_encoder]}.safetensors',
     'ltx-2.5-video-vae-bf16.safetensors',
     'ltx-2.5-audio-vae-bf16.safetensors',
     'ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors',
@@ -454,6 +461,8 @@ for index, (repo, filename, sha, size) in enumerate(plan, start=1):
 targets = []
 for kind, workflow in workflows.items():
     stem = f'LTX-2.5-{kind.upper()}-{variant.upper()}'
+    if text_encoder != variant:
+        stem += f'-TE-{text_encoder.upper()}'
     target = root / f'data/user/default/workflows/{stem}.json'
     if target.exists():
         target = target.with_name(f'{stem}.upstream.json')
