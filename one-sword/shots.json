@@ -1,0 +1,82 @@
+{
+  "keyframe_dir": "古风水墨动画风格",
+  "output_prefix": "onesword",
+  "width": 1280,
+  "height": 720,
+  "fps": 24,
+  "style": "Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor textures on xuan paper, black, grey and cold blue-grey palette with warm lantern light.",
+  "shots": [
+    {
+      "id": "1A", "mode": "i2v", "first": "3.png", "duration": 7, "seed": 1101,
+      "prompt": "The young swordsman in black walks slowly up the wet stone steps toward the lit tea pavilion, seen from behind, his bamboo hat on his back and long sword at his side. Rain falls steadily, mist drifts between the cliffs, bamboo leaves and the hem of his robe sway in the wind. Halfway up, a flock of crows bursts out of the bamboo on the right and scatters into the dark sky. He slows his pace. The camera follows behind him in a slow, steady tracking shot. Sound of heavy rain, wind in the bamboo, crows cawing."
+    },
+    {
+      "id": "1B", "mode": "i2v", "first": "K1B.png", "duration": 3, "seed": 1102,
+      "prompt": "Close-up of the swordsman's right hand at his side. Rain drips from his sleeve. His fingers slowly move toward the sword hilt and rest on it, tightening slightly. Locked camera. Sound of rain and a faint creak of leather."
+    },
+    {
+      "id": "1C", "mode": "i2v", "first": "K1C.png", "duration": 5, "seed": 1103,
+      "prompt": "Medium close-up of the young swordsman in three-quarter view, rain running down his face and hair. He stands still and looks toward the distant lantern-lit pavilion, eyes narrowing. A slow push-in toward his face. He keeps the same face and hairstyle throughout. Sound of rain and distant thunder."
+    },
+    {
+      "id": "2A", "mode": "i2v", "first": "K2A.png", "duration": 4, "seed": 1201,
+      "prompt": "Inside the old tea pavilion at night. The swordsman in black steps in from the rain and stops at the entrance. The woman in white sits calmly at the table, a white oil-paper umbrella beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and footsteps on wet wood."
+    },
+    {
+      "id": "2B", "mode": "i2v", "first": "K2B.png", "duration": 2, "seed": 1202,
+      "prompt": "Close-up of the swordsman's face. He looks down at the jade pendant on the table, and his eyes widen slightly in shock. Minimal head movement. Locked camera. Sound of rain."
+    },
+    {
+      "id": "2C", "mode": "i2v", "first": "K2C.png", "duration": 3, "seed": 1203,
+      "prompt": "Medium close-up of the woman in white. She slowly lifts her gaze, a faint calm smile, and says softly in Mandarin, \"你终于来了。\" Locked camera, her face and mouth clearly visible. Sound of rain in the background."
+    },
+    {
+      "id": "2D", "mode": "i2v", "first": "K2B.png", "duration": 2, "seed": 1204,
+      "prompt": "Close-up of the swordsman. He frowns slightly and asks in a low, guarded voice in Mandarin, \"你是谁？\" Locked camera. Sound of rain."
+    },
+    {
+      "id": "2E", "mode": "flf2v", "first": "K2E-start.png", "last": "4.png", "duration": 4, "seed": 1205,
+      "prompt": "Inside the tea pavilion, the woman in white slowly turns her head toward the rain. Suddenly a volley of arrows flies out of the rain toward the pavilion. She grabs the white oil-paper umbrella, opens it and spins it; a circular barrier of swirling ink-like sword energy forms and deflects the arrows. The swordsman stands beside the table. Locked camera, ending on the final frame composition. Sound of arrows whistling, the umbrella snapping open, arrows striking and shattering."
+    },
+    {
+      "id": "3A", "mode": "i2v", "first": "K3A.png", "duration": 4, "seed": 1301,
+      "prompt": "Wide shot of a bamboo forest in heavy rain at night. The swordsman in black and the woman in white run out of the tea pavilion along the path. Black-clad pursuers in conical bamboo hats emerge from between the bamboo on all sides. Rain, bamboo leaves and ink splashes fly. Slow pan following the two. Sound of rain, running footsteps, rustling bamboo."
+    },
+    {
+      "id": "3B", "mode": "i2v", "first": "K3B.png", "duration": 3, "seed": 1302,
+      "prompt": "Close-up of the swordsman's hand drawing the long sword from its scabbard. As the blade comes out, the image turns into stark black-and-white ink, raindrops freezing in the air. Locked camera. Sound of the blade sliding out, rain suddenly muffled."
+    },
+    {
+      "id": "3C", "mode": "i2v", "first": "5.png", "duration": 4, "seed": 1303,
+      "prompt": "The swordsman completes one horizontal sword stroke. A bright arc of sword energy sweeps across the bamboo forest, bamboo stalks shudder and leaves scatter, ink splashes burst outward. The pursuers freeze mid-motion. The woman in white with the umbrella stays still behind him. Locked camera. Sound of a sharp sword whoosh, then silence except for rain."
+    },
+    {
+      "id": "3D", "mode": "i2v", "first": "K3D.png", "duration": 4, "seed": 1304,
+      "prompt": "Medium shot of the swordsman standing still in the rain. Behind him, sword marks appear across the pursuers' bamboo hats and clothes, and they collapse one by one. He slowly slides the sword back into its scabbard. Locked camera. Sound of bodies falling into water, then a clear metallic \"zheng\" as the sword sheathes."
+    },
+    {
+      "id": "4A", "mode": "i2v", "first": "K4A.png", "duration": 4, "seed": 1401,
+      "prompt": "Dawn on a broken stone bridge after the rain, distant mountains wrapped in morning mist, soft warm light. The woman in white holds out half a jade pendant; the swordsman in black reaches out and takes it. Slow, gentle movements. Locked medium shot. Sound of a light mountain breeze and dripping water."
+    },
+    {
+      "id": "4B", "mode": "i2v", "first": "K4B.png", "duration": 2, "seed": 1402,
+      "prompt": "Close-up of the swordsman's palm. He brings the two halves of the jade pendant together; they fit into one complete pendant and glow faintly. Locked camera. Sound of a soft jade click."
+    },
+    {
+      "id": "4C", "mode": "i2v", "first": "K4C.png", "duration": 3, "seed": 1403,
+      "prompt": "Flashback, warm orange firelight. A manor burns at night, flames and ink smoke rising. A young woman in white pushes a small boy out through a burning doorway; he falls onto the ground outside and looks back as she stays inside the fire. Locked camera. Sound of roaring fire and crackling wood."
+    },
+    {
+      "id": "4D", "mode": "i2v", "first": "K4D.png", "duration": 2, "seed": 1404,
+      "prompt": "Close-up of the swordsman at dawn, his eyes reddened. He looks at the woman in front of him and says quietly in Mandarin, \"师姐……\" Locked camera, his face and mouth clearly visible. Soft breeze."
+    },
+    {
+      "id": "4E", "mode": "flf2v", "first": "K4E-start.png", "last": "6.png", "duration": 4, "seed": 1405,
+      "prompt": "On the broken bridge at dawn, the woman in white smiles gently at the swordsman. A gust of mountain wind blows. The edges of her body begin to dissolve into ink and mist, her white robe turning translucent, ink drifting away with the wind. The swordsman reaches out but cannot touch her. Her umbrella falls to the bridge. Locked camera, ending on the final frame composition. Sound of wind and a soft fading chime."
+    },
+    {
+      "id": "4F", "mode": "i2v", "first": "K4F.png", "duration": 3, "seed": 1406,
+      "prompt": "The swordsman stands alone on the broken bridge, holding the complete jade pendant, the white umbrella lying by the railing. Mist drifts, morning light grows. Very slow push-in. Sound of quiet wind."
+    }
+  ]
+}
