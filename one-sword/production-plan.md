@@ -98,6 +98,8 @@ FLF2V 子图里的 `LTXVAddGuide` 可以串联多个：复制一个 `LTXVAddGuid
 | K4E-start | 与 `6.png` 同机位，清漪完整未消散，白伞还握在手中 | 两人 |
 | K4F | 沈墨独自站在断桥上，白伞落在桥边，手握完整玉佩 | 沈墨 |
 
+每张关键帧的生成提示词和参考图搭配见 `keyframe-prompts.md`。
+
 生成关键帧时，每张都把对应人物的设定图作为参考图输入（Qwen-Image-Edit、FLUX Kontext 等支持多参考图的编辑模型都可以）。**生成后先人工核对脸、发型、发饰、服装、斗笠、玉佩，不合格的不进入 LTX。**
 
 ## 4. 分镜与提示词
@@ -181,8 +183,10 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 **3C｜I2V｜首帧 `5.png`｜4 秒**
 
 ```text
-[风格句] The swordsman completes one horizontal sword stroke. A bright arc of sword energy sweeps across the bamboo forest, bamboo stalks shudder and leaves scatter, ink splashes burst outward. The pursuers freeze mid-motion. The woman in white with the umbrella stays still behind him. Locked camera. Sound of a sharp sword whoosh, then silence except for rain.
+[风格句] The swordsman holds his follow-through pose, sword arm extended, body and face unchanged and not turning. The arc of sword light keeps sweeping outward across the bamboo forest, bamboo stalks shudder, leaves and ink splashes scatter. The pursuers freeze mid-motion. The woman in white stays still behind him. Locked camera. Sound of a sharp sword whoosh, then only rain.
 ```
+
+`5.png` 已经是挥剑完成的定格画面。如果提示词再让他"挥一剑"，模型只能自己编后续动作，常见结果是人物转身，脸和服装随之漂移。所以这里只让剑光、竹叶和墨迹动，人物保持姿势不变。
 
 **3D｜I2V｜K3D｜4 秒**
 

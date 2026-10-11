@@ -49,7 +49,7 @@
     },
     {
       "id": "3C", "mode": "i2v", "first": "5.png", "duration": 4, "seed": 1303,
-      "prompt": "The swordsman completes one horizontal sword stroke. A bright arc of sword energy sweeps across the bamboo forest, bamboo stalks shudder and leaves scatter, ink splashes burst outward. The pursuers freeze mid-motion. The woman in white with the umbrella stays still behind him. Locked camera. Sound of a sharp sword whoosh, then silence except for rain."
+      "prompt": "The swordsman holds his follow-through pose, sword arm extended, body and face unchanged and not turning. The arc of sword light keeps sweeping outward across the bamboo forest, bamboo stalks shudder, leaves and ink splashes scatter. The pursuers freeze mid-motion. The woman in white stays still behind him. Locked camera. Sound of a sharp sword whoosh, then only rain."
     },
     {
       "id": "3D", "mode": "i2v", "first": "K3D.png", "duration": 4, "seed": 1304,
