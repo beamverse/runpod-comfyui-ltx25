@@ -217,6 +217,14 @@ RunPod 同一种 GPU 也可能分到不同驱动版本的宿主机，容器内�
 
 持久盘在不同宿主机之间挂载时：`startup` 发现已安装的 PyTorch 需要比本机更新的驱动，会自动重新执行 `install` 换成匹配的 PyTorch（模型复用已下载文件，仍需要 `HF_TOKEN`）；`start` 则直接报错并提示重新安装。
 
+### 安装时报 "CUDA is unavailable"
+
+安装过程中的 CUDA 自检失败时，脚本会打印诊断信息：`/dev/nvidia*` 设备是否存在、`libcuda.so.1` 能否加载，以及 `cuInit` 的返回码。
+
+- **`cuInit` 不为 0**（常见的是 `999 CUDA_ERROR_UNKNOWN`），或 `/dev/nvidia-uvm` 显示 `MISSING`：宿主机的 GPU 没有完整透传到容器。此时 `nvidia-smi` 往往仍然正常，但这不是 PyTorch 或脚本的问题，容器里修不了。先重启 Pod；仍然失败就终止 Pod，重新部署到另一台机器。
+- **`libcuda.so.1` 无法加载**：容器没有挂载 GPU，检查 Pod 是否选择了 GPU。
+- **`cuInit = 0` 但 PyTorch 仍不可用**：PyTorch 的 CUDA 版本与驱动不匹配，用 `TORCH_CUDA` 指定合适的版本后重新安装。
+
 ## 完整精度（BF16）版本
 
 默认安装 INT8 量化模型（`LTX_VARIANT=int8`），适合 32 GB 显存。如需 BF16 完整精度模型（22B 主模型、Gemma 4 12B 文本编码器和 Prompt Enhancer 均为 BF16）：

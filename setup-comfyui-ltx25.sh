@@ -280,7 +280,33 @@ PY
 "$py" - <<'PY'
 import torch
 if not torch.cuda.is_available():
-    raise SystemExit('CUDA is unavailable. Check the Pod GPU and host driver.')
+    # Tell a broken host (nvidia-smi works, CUDA does not) apart from a PyTorch problem.
+    import ctypes, os
+    lines = ['CUDA is unavailable. Diagnostics:']
+    visible = os.environ.get('CUDA_VISIBLE_DEVICES')
+    if visible is not None:
+        lines.append(f'  CUDA_VISIBLE_DEVICES={visible!r}')
+    for dev in ('/dev/nvidiactl', '/dev/nvidia-uvm', '/dev/nvidia0'):
+        lines.append(f'  {dev}: {"present" if os.path.exists(dev) else "MISSING"}')
+    try:
+        libcuda = ctypes.CDLL('libcuda.so.1')
+    except OSError as e:
+        lines.append(f'  libcuda.so.1: cannot load ({e})')
+        lines.append('The container has no usable NVIDIA driver library; the GPU is not attached to this Pod.')
+        raise SystemExit('\n'.join(lines))
+    code = libcuda.cuInit(0)
+    name = ctypes.c_char_p()
+    libcuda.cuGetErrorName(code, ctypes.byref(name))
+    lines.append(f'  cuInit = {code} ({name.value.decode() if name.value else "unknown"})')
+    if code != 0:
+        lines.append('The CUDA driver itself fails to initialise, so this is not a PyTorch problem: '
+                     'the host GPU is not usable from this container (often a missing /dev/nvidia-uvm '
+                     'or a GPU in a bad state). Restart the Pod; if it persists, terminate it and '
+                     'deploy on another machine.')
+    else:
+        lines.append('The CUDA driver works but PyTorch cannot use it. Check that the PyTorch build '
+                     f'({torch.__version__}) matches the host driver, or set TORCH_CUDA.')
+    raise SystemExit('\n'.join(lines))
 x = torch.randn((128, 128), device='cuda', dtype=torch.bfloat16)
 result = x @ x
 torch.cuda.synchronize()
