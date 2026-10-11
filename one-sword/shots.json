@@ -21,16 +21,16 @@
       "prompt": "Medium close-up of the young swordsman in three-quarter view, rain running down his face and hair. He stands still and looks toward the distant lantern-lit pavilion, eyes narrowing slightly. Locked camera, his face stays the same size in frame. He keeps the same face, hairstyle and ink-wash rendering throughout. Sound of rain and distant thunder."
     },
     {
-      "id": "2A", "mode": "i2v", "first": "K2A.png", "duration": 4, "seed": 2201,
-      "prompt": "Inside the old tea pavilion at night. The swordsman in black has just stepped in from the rain and stands near the entrance, water dripping from his robe; his round bamboo hat stays on his back. He slowly turns his gaze toward the table. The woman in white sits calmly at the table, her closed white oil-paper umbrella leaning beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and water dripping onto wet wood."
+      "id": "2A", "mode": "flf2v", "first": "K2A.png", "last": "K2A.png", "duration": 4, "seed": 2211,
+      "prompt": "Inside the old tea pavilion at night. The swordsman in black stands at the entrance, having just come in from the rain, and holds his position, gazing at the woman in white seated at the table. Only small movements: water drips from his robe hem, strands of wet hair stir in the wind, he breathes slowly. The woman sits calmly. Rain pours outside, lanterns sway gently. Locked medium-wide shot, ending on the same composition as the first frame. Sound of rain on the roof and water dripping onto wet wood."
     },
     {
       "id": "2B", "mode": "i2v", "first": "K2B.png", "duration": 2, "seed": 1202,
       "prompt": "Close-up of the swordsman's face. He looks down at the jade pendant on the table, and his eyes widen slightly in shock. Minimal head movement. Locked camera. Sound of rain."
     },
     {
-      "id": "2C", "mode": "i2v", "first": "K2C.png", "duration": 3, "seed": 1203,
-      "prompt": "Medium close-up of the woman in white. She slowly lifts her gaze, a faint calm smile, and says softly in Mandarin, \"你终于来了。\" Locked camera, her face and mouth clearly visible. Sound of rain in the background."
+      "id": "2C", "mode": "i2v", "first": "K2C.png", "duration": 3, "seed": 3001,
+      "prompt": "Medium close-up of the woman in white. She slowly lifts her gaze with a faint calm smile, then softly speaks one short line, her lips moving gently for about a second. Locked camera, her face and mouth clearly visible. Sound of rain in the background and a soft female voice."
     },
     {
       "id": "2D", "mode": "i2v", "first": "K2B.png", "duration": 2, "seed": 1204,
@@ -69,8 +69,8 @@
       "prompt": "Flashback, warm orange firelight. The small boy has just been pushed out of the burning manor and lies on the ground outside. He pushes himself up and looks back at the young woman in white standing in the burning doorway, her hand still stretched toward him, as flames and ink smoke rise around her and burning beams fall. Locked camera. Sound of roaring fire and crackling wood."
     },
     {
-      "id": "4D", "mode": "i2v", "first": "K4D.png", "duration": 2, "seed": 1404,
-      "prompt": "Close-up of the swordsman at dawn, his eyes reddened. He looks at the woman in front of him and says quietly in Mandarin, \"师姐……\" Locked camera, his face and mouth clearly visible. Soft breeze."
+      "id": "4D", "mode": "i2v", "first": "K4D.png", "duration": 2, "seed": 3001,
+      "prompt": "Close-up of the swordsman at dawn, his eyes reddened. He looks at the woman in front of him and quietly says a single short word, his lips barely moving, then falls silent. Locked camera, his face and mouth clearly visible. Soft breeze and a low, trembling male voice."
     },
     {
       "id": "4E", "mode": "flf2v", "first": "K4E-start.png", "last": "6.png", "duration": 4, "seed": 1405,

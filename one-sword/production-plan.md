@@ -27,6 +27,7 @@
 | 镜头里人脸从头到尾可见，动作幅度小 | I2V |
 | 人物从背面/遮挡转向正面 | FLF2V，尾帧要有正脸 |
 | 镜头必须停在特定构图上（如 4.png、6.png） | FLF2V，把该图作为尾帧 |
+| 人物基本不动的"定格"镜头，但 I2V 总让人物走动或转身 | FLF2V，首帧和尾帧用同一张图 |
 | 剑气、伞挡箭、化墨等特效，需要控制结束状态 | FLF2V |
 
 ## 2. 工作流参数修改（提高人物一致性）
@@ -106,7 +107,9 @@ FLF2V 子图里的 `LTXVAddGuide` 可以串联多个：复制一个 `LTXVAddGuid
 
 通用设置：1280×720，24fps，prompt_enhance 关闭。下面每段提示词都以同一句风格描述开头，保证四个 PART 的画风一致。旁白统一在后期配音，提示词中只写环境声和对白。
 
-每条提示词末尾还会自动加上 `shots.json` 的 `suffix`："No subtitles, no captions, no on-screen text."。没有这一句时，模型会把对白当成字幕画进画面（2C、4D 第一次生成时都出现了这个问题）。
+每条提示词末尾还会自动加上 `shots.json` 的 `suffix`："No subtitles, no captions, no on-screen text."。
+
+**对白不要写进提示词。** 提示词里用引号写出中文台词时，模型会在人物开口说话的那几帧把台词画成字幕，而且常有错字。2C、4D 换了三次 seed、加了上面的 suffix 都没用：这个蒸馏模型的 CFG 为 1，"不要字幕"这类否定描述和负面提示词基本不起作用。所以 2C、4D 的提示词只描述"说了一句话"的口型和表情，台词在后期配音，和旁白一起处理。2D 用了台词原文却没有出现字幕，属于碰巧，如果重跑时出现字幕，也按同样方式处理。
 
 风格句（每条提示词开头都加上）：
 
@@ -138,10 +141,10 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 
 ### PART 2 — 亭中故人（15 秒）
 
-**2A｜I2V｜K2A｜4 秒**
+**2A｜FLF2V｜首帧、尾帧都是 K2A｜4 秒**
 
 ```text
-[风格句] Inside the old tea pavilion at night. The swordsman in black has just stepped in from the rain and stands near the entrance, water dripping from his robe; his round bamboo hat stays on his back. He slowly turns his gaze toward the table. The woman in white sits calmly at the table, her closed white oil-paper umbrella leaning beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and water dripping onto wet wood.
+[风格句] Inside the old tea pavilion at night. The swordsman in black stands at the entrance, having just come in from the rain, and holds his position, gazing at the woman in white seated at the table. Only small movements: water drips from his robe hem, strands of wet hair stir in the wind, he breathes slowly. The woman sits calmly. Rain pours outside, lanterns sway gently. Locked medium-wide shot, ending on the same composition as the first frame. Sound of rain on the roof and water dripping onto wet wood.
 ```
 
 **2B｜I2V｜K2B｜2 秒**
@@ -153,7 +156,7 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 **2C｜I2V｜K2C｜3 秒（对白）**
 
 ```text
-[风格句] Medium close-up of the woman in white. She slowly lifts her gaze, a faint calm smile, and says softly in Mandarin, "你终于来了。" Locked camera, her face and mouth clearly visible. Sound of rain in the background.
+[风格句] Medium close-up of the woman in white. She slowly lifts her gaze with a faint calm smile, then softly speaks one short line, her lips moving gently for about a second. Locked camera, her face and mouth clearly visible. Sound of rain in the background and a soft female voice.
 ```
 
 **2D｜I2V｜K2B 或新近景｜2 秒（对白）**
@@ -219,7 +222,7 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 **4D｜I2V｜K4D｜2 秒（对白）**
 
 ```text
-[风格句] Close-up of the swordsman at dawn, his eyes reddened. He looks at the woman in front of him and says quietly in Mandarin, "师姐……" Locked camera, his face and mouth clearly visible. Soft breeze.
+[风格句] Close-up of the swordsman at dawn, his eyes reddened. He looks at the woman in front of him and quietly says a single short word, his lips barely moving, then falls silent. Locked camera, his face and mouth clearly visible. Soft breeze and a low, trembling male voice.
 ```
 
 **4E｜FLF2V｜首帧 K4E-start，尾帧 `6.png`｜4 秒**
@@ -285,7 +288,7 @@ EOF
 ffmpeg -f concat -safe 0 -i list.txt -c copy onesword.mp4
 ```
 
-旁白（"江湖的雨，已经下了十年。"、"有些人等你十年，只为送你走完最后一程。"）和片名在剪辑软件中添加。
+旁白（"江湖的雨，已经下了十年。"、"有些人等你十年，只为送你走完最后一程。"）、2C 和 4D 的对白（"你终于来了。"、"师姐……"）以及片名，都在剪辑软件中添加。2C、4D 的配音要替换掉镜头里模型生成的人声，雨声等环境音可以保留或另外补上。
 
 ## 7. 检查清单
 
