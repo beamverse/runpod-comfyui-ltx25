@@ -236,8 +236,8 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 
 **准备（只需一次）：**
 
-1. 在 ComfyUI 中打开 `LTX-2.5-I2V-*.json`，菜单 **Workflow → Export (API)**，保存为 `one-sword/api/i2v.json`。
-2. 对 `LTX-2.5-FLF2V-*.json` 做同样操作，保存为 `one-sword/api/flf2v.json`。
+1. 在 ComfyUI 中打开 `LTX-2.5-I2V-*.json`，菜单 **Workflow → Export (API)**，保存到 `one-sword/api/`，保留原文件名即可（如 `LTX-2.5-I2V-INT8-TE-BF16.json`），脚本会按文件名中的 `I2V` / `FLF2V` 自动识别。
+2. 对 `LTX-2.5-FLF2V-*.json` 做同样操作。同类文件只能放一个，否则用 `--i2v` / `--flf2v` 指定。
 3. 把补做的关键帧放进 `古风水墨动画风格/`，文件名与第 3 节编号一致：`K1B.png`、`K2E-start.png`……
 
 **运行：**
@@ -258,6 +258,7 @@ python3 submit_shots.py --server ... --only 2C --seed 2024 --force
 ```
 
 - 每个镜头都会设置：关键帧、风格句 + 提示词、时长、1280×720、24fps、seed，同时强制关闭 Prompt Enhance。
+- 提交时按 `shots.json` 的 `frame_strength`（默认 0.9）设置关键帧强度，并把缩放改为 lanczos。所以即使从旧安装导出的工作流（强度 0.7），也不需要重新安装、重新导出。设为 `null` 则按导出时的原样提交。
 - `output/` 里已有结果的镜头会被跳过，加 `--force` 才会重新生成。
 - `--seed` 只在本次运行中生效。选到满意的 seed 后，把它写回 `shots.json`，以后就能复现。
 - 改提示词、时长或关键帧，直接编辑 `shots.json`。

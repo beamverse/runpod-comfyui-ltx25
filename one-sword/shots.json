@@ -4,6 +4,7 @@
   "width": 1280,
   "height": 720,
   "fps": 24,
+  "frame_strength": 0.9,
   "style": "Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor textures on xuan paper, black, grey and cold blue-grey palette with warm lantern light.",
   "shots": [
     {

@@ -2,7 +2,8 @@
 """Queue every shot in shots.json on a ComfyUI server and download the results.
 
 The workflows must be the LTX-2.5 I2V / FLF2V workflows exported in API format
-(ComfyUI: Workflow -> Export (API)). Standard library only.
+(ComfyUI: Workflow -> Export (API)) into api/; files named *I2V* / *FLF2V* are
+found automatically. Standard library only.
 
     python3 submit_shots.py --server https://<pod-id>-8188.proxy.runpod.net
     python3 submit_shots.py --only 2C,2D --seed 77    # re-roll two shots
@@ -79,9 +80,39 @@ def set_input(workflow, ids, name, value):
         workflow[nid]['inputs'][name] = value
 
 
+def find_api_workflow(mode):
+    """api/<mode>.json, or the single api/*<MODE>*.json exported from ComfyUI."""
+    exact = HERE / f'api/{mode}.json'
+    if exact.is_file():
+        return exact
+    matches = [p for p in sorted((HERE / 'api').glob('*.json'))
+               if f'-{mode}-' in f'-{p.stem.lower()}-'.replace('.', '-')]
+    if len(matches) > 1:
+        raise SystemExit(f'Several {mode.upper()} workflows in api/: {", ".join(p.name for p in matches)}. '
+                         f'Choose one with --{mode}.')
+    return matches[0] if matches else exact
+
+
+def tune_keyframes(wf, strength):
+    """Same keyframe settings as setup-comfyui-ltx25.sh, for workflows exported
+    from an install that predates them (upstream strength 0.7, nearest resize)."""
+    for node in wf.values():
+        kind, inputs = node.get('class_type'), node.get('inputs', {})
+        value = inputs.get('strength')
+        # The I2V second pass is already 1.0 and stays there.
+        if kind == 'LTXVImgToVideoInplace' and isinstance(value, (int, float)) and value < 1:
+            inputs['strength'] = strength
+        elif kind == 'LTXVAddGuide' and isinstance(value, (int, float)):
+            inputs['strength'] = strength
+        elif kind == 'ResizeImageMaskNode' and inputs.get('scale_method') == 'nearest-exact':
+            inputs['scale_method'] = 'lanczos'
+
+
 def build(template, shot, config, images):
     """Fill one shot into a copy of the API workflow."""
     wf = json.loads(json.dumps(template))
+    if config.get('frame_strength') is not None:
+        tune_keyframes(wf, config['frame_strength'])
     loads = find(wf, 'LoadImage')
     if shot['mode'] == 'flf2v':
         set_input(wf, find(wf, 'LoadImage', 'first'), 'image', images['first'])
@@ -136,8 +167,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--server', default='http://127.0.0.1:8188', help='ComfyUI URL')
     ap.add_argument('--shots', type=Path, default=HERE / 'shots.json')
-    ap.add_argument('--i2v', type=Path, default=HERE / 'api/i2v.json', help='I2V workflow in API format')
-    ap.add_argument('--flf2v', type=Path, default=HERE / 'api/flf2v.json', help='FLF2V workflow in API format')
+    ap.add_argument('--i2v', type=Path, help='I2V workflow in API format (default: found in api/)')
+    ap.add_argument('--flf2v', type=Path, help='FLF2V workflow in API format (default: found in api/)')
     ap.add_argument('--out', type=Path, default=HERE / 'output')
     ap.add_argument('--only', help='comma-separated shot ids, e.g. 1A,2E')
     ap.add_argument('--seed', type=int, help='override the seed of the selected shots (re-roll)')
@@ -149,6 +180,9 @@ def main():
     server = args.server.rstrip('/')
 
     config = json.loads(args.shots.read_text(encoding='utf-8'))
+    strength = config.get('frame_strength')
+    if strength is not None and not (isinstance(strength, (int, float)) and 0 < strength <= 1):
+        raise SystemExit('frame_strength in shots.json must be greater than 0 and at most 1, or null.')
     shots = config['shots']
     if args.only:
         wanted = [s.strip() for s in args.only.split(',') if s.strip()]
@@ -175,7 +209,7 @@ def main():
         for key in ('first', 'last') if shot['mode'] == 'flf2v' else ('first',):
             if not (keyframes / shot[key]).is_file():
                 missing.append(f'{shot["id"]} {key}: {keyframes / shot[key]}')
-        path = getattr(args, shot['mode'])
+        path = getattr(args, shot['mode']) or find_api_workflow(shot['mode'])
         if shot['mode'] not in templates:
             if not path.is_file():
                 raise SystemExit(f'Missing API workflow {path}. In ComfyUI open the LTX-2.5 '

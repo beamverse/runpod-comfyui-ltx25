@@ -20,6 +20,7 @@ usage() {
       '  COMFYUI_REF       latest (default), master, or a release tag such as v0.32.0' \
       '  LTX_VARIANT       int8 (default, fits 32GB VRAM) or bf16 (full precision, upstream template)' \
       '  LTX_TEXT_ENCODER  int8 or bf16 Gemma 4 text encoder; default: same as LTX_VARIANT' \
+      '  LTX_FRAME_STRENGTH  I2V/FLF2V keyframe strength, 0-1; default 0.9 (upstream 0.7)' \
       '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
       '  RUNPOD_START_BASE_SERVICES  Default: 1; run /start.sh in startup mode when present' \
       '  TORCH_CUDA        auto (default), cu130, cu128 or cu126 PyTorch build' \
@@ -165,7 +166,10 @@ LTX_VARIANT=${LTX_VARIANT:-int8}
 [[ "$LTX_VARIANT" == int8 || "$LTX_VARIANT" == bf16 ]] || die 'LTX_VARIANT must be int8 or bf16.'
 LTX_TEXT_ENCODER=${LTX_TEXT_ENCODER:-$LTX_VARIANT}
 [[ "$LTX_TEXT_ENCODER" == int8 || "$LTX_TEXT_ENCODER" == bf16 ]] || die 'LTX_TEXT_ENCODER must be int8 or bf16.'
-export LTX_VARIANT LTX_TEXT_ENCODER
+LTX_FRAME_STRENGTH=${LTX_FRAME_STRENGTH:-0.9}
+[[ "$LTX_FRAME_STRENGTH" =~ ^(0(\.[0-9]+)?|1(\.0+)?)$ && ! "$LTX_FRAME_STRENGTH" =~ ^0(\.0*)?$ ]] ||
+    die 'LTX_FRAME_STRENGTH must be a number greater than 0 and at most 1.'
+export LTX_VARIANT LTX_TEXT_ENCODER LTX_FRAME_STRENGTH
 log "Models: $LTX_VARIANT transformer, $LTX_TEXT_ENCODER text encoder"
 
 if [[ -z ${HF_TOKEN:-} ]]; then
@@ -380,6 +384,35 @@ for kind in ('t2v', 'i2v', 'flf2v'):
     path = template_dir / f'video_ltx2_5_{kind}.json'
     if path.exists():
         workflows[kind] = replace(json.loads(path.read_text()))
+
+# Keyframe fidelity: the upstream I2V first pass and FLF2V guides use strength 0.7,
+# which lets the model repaint the keyframe itself, so faces drift from frame 0.
+# Nearest-neighbour resizing of the keyframes also discards facial detail.
+frame_strength = float(os.environ['LTX_FRAME_STRENGTH'])
+def tune(workflow):
+    graphs = [workflow] + workflow.get('definitions', {}).get('subgraphs', [])
+    changed = 0
+    for node in (node for graph in graphs for node in graph.get('nodes', [])):
+        values = node.get('widgets_values')
+        if not isinstance(values, list):
+            continue
+        kind = node.get('type')
+        # [strength, bypass]; the second pass is already 1.0 and stays there.
+        if kind == 'LTXVImgToVideoInplace' and isinstance(values[0], (int, float)) and values[0] < 1:
+            values[0] = frame_strength
+            changed += 1
+        # [frame_idx, strength]
+        elif kind == 'LTXVAddGuide' and len(values) > 1 and isinstance(values[1], (int, float)):
+            values[1] = frame_strength
+            changed += 1
+        elif kind == 'ResizeImageMaskNode' and 'nearest-exact' in values:
+            node['widgets_values'] = ['lanczos' if v == 'nearest-exact' else v for v in values]
+            changed += 1
+    return changed
+for kind in ('i2v', 'flf2v'):
+    if kind in workflows and not tune(workflows[kind]):
+        print(f'WARNING: no keyframe settings found in the {kind.upper()} template; left as upstream.',
+              file=sys.stderr)
 
 models = {}
 def collect(value):

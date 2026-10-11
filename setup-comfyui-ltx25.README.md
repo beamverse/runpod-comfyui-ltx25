@@ -36,6 +36,7 @@ INSTALL_ROOT=/workspace/comfyui-ltx25
 COMFYUI_REF=v0.39.0
 LTX_VARIANT=int8                     # 或 bf16，见下文
 LTX_TEXT_ENCODER=                    # 留空跟随 LTX_VARIANT；可单独设 bf16，见下文
+LTX_FRAME_STRENGTH=0.9               # I2V/FLF2V 关键帧强度，见下文
 TORCH_CUDA=auto                      # 或 cu130 / cu128 / cu126，一般保持 auto
 LISTEN=0.0.0.0
 PORT=8188
@@ -242,6 +243,21 @@ LTX_TEXT_ENCODER=bf16 bash /workspace/setup-comfyui-ltx25.sh install
 - 精度与 `LTX_VARIANT` 不同时，工作流文件名带后缀，例如 `LTX-2.5-T2V-INT8-TE-BF16.json`，与其他组合的工作流并存。
 - 已有安装上切换：停止 ComfyUI 后用上面的命令重新执行 `install`，已下载的模型会复用。
 
+## 关键帧强度（人物一致性）
+
+官方 I2V 工作流第一阶段的首帧强度、FLF2V 的首尾帧强度都是 `0.7`，模型可以改动关键帧本身，人脸从第一帧起就可能偏离参考图。脚本生成 I2V/FLF2V 工作流时会做两项调整：
+
+- 把这些强度改为 `LTX_FRAME_STRENGTH`（默认 `0.9`）。I2V 第二阶段原本就是 `1.0`，保持不变。
+- 关键帧缩放从 `nearest-exact` 改为 `lanczos`，保留面部细节。
+
+```bash
+LTX_FRAME_STRENGTH=1.0 bash /workspace/setup-comfyui-ltx25.sh install
+```
+
+- 强度越高越贴近关键帧，但动作可能变少；画面太"定"时可降到 `0.8`–`0.85`。设为 `0.7` 即恢复官方强度（缩放仍为 lanczos）。
+- 已安装过的环境再次执行 `install` 时，为保护你修改过的工作流，原文件不会被覆盖，新工作流写入 `*.upstream.json`。要直接替换，先删除或改名旧的 `LTX-2.5-I2V-*.json` / `LTX-2.5-FLF2V-*.json`。
+- 不想重新安装，也可以在 ComfyUI 中进入子图手动修改：`LTXVImgToVideoInplace`（strength 小于 1 的那个）、`LTXVAddGuide` 的 strength，以及 `ResizeImageMaskNode` 的缩放方法。
+
 ## 自定义目录、端口和 ComfyUI 参数
 
 自定义目录：
@@ -281,7 +297,7 @@ SSH 公钥更建议添加到 RunPod Account 的 SSH Keys，而不是硬编码进
 ## 安装内容和边界
 
 - 独立 Python 3.12、按驱动选择 CUDA 版本的 PyTorch、ComfyUI 及其匹配依赖。
-- 从已安装模板包中提取官方 LTX-2.5 文生视频工作流，按 `LTX_VARIANT` 把主模型、文本编码器和 Prompt Enhancer 统一替换为 INT8（默认）或 BF16 版本；上游模板无论发布哪种精度都能处理。
+- 从已安装模板包中提取官方 LTX-2.5 文生视频工作流，按 `LTX_VARIANT` 把主模型、文本编码器和 Prompt Enhancer 统一替换为 INT8（默认）或 BF16 版本；上游模板无论发布哪种精度都能处理。I2V/FLF2V 工作流另按 `LTX_FRAME_STRENGTH` 调整关键帧强度和缩放方法。
 - 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；不安装 Manager 或额外 custom nodes，基础工作流使用 ComfyUI 原生节点。
 - 检查 Hugging Face 授权、下载前剩余空间、模型文件大小、Python 依赖和实际 CUDA BF16 矩阵运算。
 - 记录源码 commit、已安装依赖版本和模型仓库 revision，便于复查。
