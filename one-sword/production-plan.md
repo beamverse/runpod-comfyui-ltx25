@@ -106,6 +106,8 @@ FLF2V 子图里的 `LTXVAddGuide` 可以串联多个：复制一个 `LTXVAddGuid
 
 通用设置：1280×720，24fps，prompt_enhance 关闭。下面每段提示词都以同一句风格描述开头，保证四个 PART 的画风一致。旁白统一在后期配音，提示词中只写环境声和对白。
 
+每条提示词末尾还会自动加上 `shots.json` 的 `suffix`："No subtitles, no captions, no on-screen text."。没有这一句时，模型会把对白当成字幕画进画面（2C、4D 第一次生成时都出现了这个问题）。
+
 风格句（每条提示词开头都加上）：
 
 ```text
@@ -131,7 +133,7 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 **1C｜I2V｜K1C｜5 秒**
 
 ```text
-[风格句] Medium close-up of the young swordsman in three-quarter view, rain running down his face and hair. He stands still and looks toward the distant lantern-lit pavilion, eyes narrowing. A slow push-in toward his face. He keeps the same face and hairstyle throughout. Sound of rain and distant thunder.
+[风格句] Medium close-up of the young swordsman in three-quarter view, rain running down his face and hair. He stands still and looks toward the distant lantern-lit pavilion, eyes narrowing slightly. Locked camera, his face stays the same size in frame. He keeps the same face, hairstyle and ink-wash rendering throughout. Sound of rain and distant thunder.
 ```
 
 ### PART 2 — 亭中故人（15 秒）
@@ -139,7 +141,7 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 **2A｜I2V｜K2A｜4 秒**
 
 ```text
-[风格句] Inside the old tea pavilion at night. The swordsman in black has just stepped in from the rain and stands near the entrance, water dripping from his robe and hat; he slowly turns his gaze toward the table. The woman in white sits calmly at the table, the white oil-paper umbrella beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and water dripping onto wet wood.
+[风格句] Inside the old tea pavilion at night. The swordsman in black has just stepped in from the rain and stands near the entrance, water dripping from his robe; his round bamboo hat stays on his back. He slowly turns his gaze toward the table. The woman in white sits calmly at the table, her closed white oil-paper umbrella leaning beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and water dripping onto wet wood.
 ```
 
 **2B｜I2V｜K2B｜2 秒**
@@ -174,10 +176,10 @@ Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor te
 [风格句] Wide shot of a bamboo forest in heavy rain at night. The swordsman in black and the woman in white run out of the tea pavilion along the path. Black-clad pursuers in conical bamboo hats emerge from between the bamboo on all sides. Rain, bamboo leaves and ink splashes fly. Slow pan following the two. Sound of rain, running footsteps, rustling bamboo.
 ```
 
-**3B｜I2V｜K3B｜3 秒**
+**3B｜I2V｜K3B｜2 秒**
 
 ```text
-[风格句] Close-up of the swordsman's hand drawing the long sword from its scabbard. As the blade comes out, the image turns into stark black-and-white ink, raindrops freezing in the air. Locked camera. Sound of the blade sliding out, rain suddenly muffled.
+[风格句] Close-up of the swordsman's hand on the sword hilt. He slowly draws the blade a little further out of the scabbard; the hand, hilt and blade stay in frame the whole time. The image turns into stark black-and-white ink, raindrops freezing in the air. Locked camera. Sound of the blade sliding out, rain suddenly muffled.
 ```
 
 **3C｜I2V｜首帧 `5.png`｜4 秒**

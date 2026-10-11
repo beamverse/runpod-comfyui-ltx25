@@ -121,7 +121,7 @@ def build(template, shot, config, images):
         set_input(wf, find(wf, 'LoadImage', 'last'), 'image', images['last'])
     else:
         set_input(wf, find(wf, 'LoadImage', 'first', required=False) or loads, 'image', images['first'])
-    prompt = f'{config["style"]} {shot["prompt"]}'.strip()
+    prompt = ' '.join(filter(None, (config.get('style'), shot['prompt'], config.get('suffix'))))
     set_input(wf, find(wf, 'PrimitiveStringMultiline', 'prompt'), 'value', prompt)
     set_input(wf, find(wf, 'PrimitiveInt', 'duration'), 'value', shot['duration'])
     set_input(wf, find(wf, 'PrimitiveInt', 'width'), 'value', shot.get('width', config['width']))

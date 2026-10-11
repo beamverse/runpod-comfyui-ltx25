@@ -6,6 +6,7 @@
   "fps": 24,
   "frame_strength": 0.9,
   "style": "Traditional Chinese ink-wash wuxia animation, hand-painted ink and watercolor textures on xuan paper, black, grey and cold blue-grey palette with warm lantern light.",
+  "suffix": "No subtitles, no captions, no on-screen text.",
   "shots": [
     {
       "id": "1A", "mode": "i2v", "first": "3.png", "duration": 7, "seed": 1101,
@@ -16,12 +17,12 @@
       "prompt": "Close-up of the swordsman's right hand at his side. Rain drips from his sleeve. His fingers slowly move toward the sword hilt and rest on it, tightening slightly. Locked camera. Sound of rain and a faint creak of leather."
     },
     {
-      "id": "1C", "mode": "i2v", "first": "K1C.png", "duration": 5, "seed": 1103,
-      "prompt": "Medium close-up of the young swordsman in three-quarter view, rain running down his face and hair. He stands still and looks toward the distant lantern-lit pavilion, eyes narrowing. A slow push-in toward his face. He keeps the same face and hairstyle throughout. Sound of rain and distant thunder."
+      "id": "1C", "mode": "i2v", "first": "K1C.png", "duration": 5, "seed": 2103,
+      "prompt": "Medium close-up of the young swordsman in three-quarter view, rain running down his face and hair. He stands still and looks toward the distant lantern-lit pavilion, eyes narrowing slightly. Locked camera, his face stays the same size in frame. He keeps the same face, hairstyle and ink-wash rendering throughout. Sound of rain and distant thunder."
     },
     {
-      "id": "2A", "mode": "i2v", "first": "K2A.png", "duration": 4, "seed": 1201,
-      "prompt": "Inside the old tea pavilion at night. The swordsman in black has just stepped in from the rain and stands near the entrance, water dripping from his robe and hat; he slowly turns his gaze toward the table. The woman in white sits calmly at the table, the white oil-paper umbrella beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and water dripping onto wet wood."
+      "id": "2A", "mode": "i2v", "first": "K2A.png", "duration": 4, "seed": 2201,
+      "prompt": "Inside the old tea pavilion at night. The swordsman in black has just stepped in from the rain and stands near the entrance, water dripping from his robe; his round bamboo hat stays on his back. He slowly turns his gaze toward the table. The woman in white sits calmly at the table, her closed white oil-paper umbrella leaning beside her and half a jade pendant on the table. Rain pours outside, lanterns sway gently. Locked medium-wide shot. Sound of rain on the roof and water dripping onto wet wood."
     },
     {
       "id": "2B", "mode": "i2v", "first": "K2B.png", "duration": 2, "seed": 1202,
@@ -44,8 +45,8 @@
       "prompt": "Wide shot of a bamboo forest in heavy rain at night. The swordsman in black and the woman in white run out of the tea pavilion along the path. Black-clad pursuers in conical bamboo hats emerge from between the bamboo on all sides. Rain, bamboo leaves and ink splashes fly. Slow pan following the two. Sound of rain, running footsteps, rustling bamboo."
     },
     {
-      "id": "3B", "mode": "i2v", "first": "K3B.png", "duration": 3, "seed": 1302,
-      "prompt": "Close-up of the swordsman's hand drawing the long sword from its scabbard. As the blade comes out, the image turns into stark black-and-white ink, raindrops freezing in the air. Locked camera. Sound of the blade sliding out, rain suddenly muffled."
+      "id": "3B", "mode": "i2v", "first": "K3B.png", "duration": 2, "seed": 2302,
+      "prompt": "Close-up of the swordsman's hand on the sword hilt. He slowly draws the blade a little further out of the scabbard; the hand, hilt and blade stay in frame the whole time. The image turns into stark black-and-white ink, raindrops freezing in the air. Locked camera. Sound of the blade sliding out, rain suddenly muffled."
     },
     {
       "id": "3C", "mode": "i2v", "first": "5.png", "duration": 4, "seed": 1303,
