@@ -5,13 +5,15 @@ The workflows must be the LTX-2.5 I2V / FLF2V workflows exported in API format
 (ComfyUI: Workflow -> Export (API)) into api/; files named *I2V* / *FLF2V* are
 found automatically. Standard library only.
 
-    python3 submit_shots.py --server https://<pod-id>-8188.proxy.runpod.net
+    python3 submit_shots.py --runpod-server <pod-id>  # = https://<pod-id>-8188.proxy.runpod.net
+    python3 submit_shots.py --server http://127.0.0.1:8188
     python3 submit_shots.py --only 2C,2D --seed 77    # re-roll two shots
     python3 submit_shots.py --dry-run                 # check files and node mapping
 """
 import argparse
 import json
 import mimetypes
+import re
 import sys
 import time
 import urllib.error
@@ -165,7 +167,10 @@ def download(server, outputs, shot_id, out_dir):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--server', default='http://127.0.0.1:8188', help='ComfyUI URL')
+    target = ap.add_mutually_exclusive_group()
+    target.add_argument('--server', default='http://127.0.0.1:8188', help='ComfyUI URL (default: %(default)s)')
+    target.add_argument('--runpod-server', metavar='POD_ID',
+                        help='RunPod pod id; uses https://POD_ID-8188.proxy.runpod.net')
     ap.add_argument('--shots', type=Path, default=HERE / 'shots.json')
     ap.add_argument('--i2v', type=Path, help='I2V workflow in API format (default: found in api/)')
     ap.add_argument('--flf2v', type=Path, help='FLF2V workflow in API format (default: found in api/)')
@@ -177,6 +182,11 @@ def main():
     ap.add_argument('--dry-run', action='store_true', help='check files and write the filled workflows only')
     ap.add_argument('--poll', type=float, default=10, help='seconds between status checks')
     args = ap.parse_args()
+    if args.runpod_server:
+        if not re.fullmatch(r'[A-Za-z0-9]+', args.runpod_server):
+            raise SystemExit(f'--runpod-server takes only the pod id (e.g. abc123xyz), not "{args.runpod_server}". '
+                             'Use --server for a full URL.')
+        args.server = f'https://{args.runpod_server}-8188.proxy.runpod.net'
     server = args.server.rstrip('/')
 
     config = json.loads(args.shots.read_text(encoding='utf-8'))

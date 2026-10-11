@@ -408,6 +408,22 @@ The anchor only covers what is visible. If the character's face is not visible
 in the image, do not plan a shot that reveals it; see "Face hidden at the
 start, revealed later" under troubleshooting.
 
+Continue from the action state in the image; do not replay it. If the image
+already shows a completed action (a finished sword stroke, a thrown punch, a
+landed jump), the model has to invent a new motion when asked to perform it
+again, often a turn of the body, and the face and costume drift with it.
+Describe the aftermath instead: the character holds the pose while effects,
+environment and secondary characters move.
+
+Bad (image shows the finished stroke):
+
+"The swordsman completes one horizontal sword stroke."
+
+Good:
+
+"The swordsman holds his follow-through pose, sword arm extended, body and face
+unchanged and not turning. The arc of sword light keeps sweeping outward."
+
 Focus the prompt on:
 
 1. motion

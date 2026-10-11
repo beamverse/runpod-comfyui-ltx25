@@ -252,15 +252,16 @@ cd one-sword
 python3 submit_shots.py --dry-run
 
 # 全部提交，等待完成并下载到 output/<镜头>.mp4
-python3 submit_shots.py --server https://<pod-id>-8188.proxy.runpod.net
+python3 submit_shots.py --runpod-server <pod-id>
 
 # 只跑已经有关键帧的镜头
-python3 submit_shots.py --server ... --only 1A,3C
+python3 submit_shots.py --runpod-server <pod-id> --only 1A,3C
 
 # 对某个镜头不满意：换 seed 重跑，--force 覆盖已有结果
-python3 submit_shots.py --server ... --only 2C --seed 2024 --force
+python3 submit_shots.py --runpod-server <pod-id> --only 2C --seed 2024 --force
 ```
 
+- `--runpod-server <pod-id>` 会自动拼成 `https://<pod-id>-8188.proxy.runpod.net`。pod id 在 RunPod 控制台的 Pod 名称下方。在 Pod 上运行，或用其他地址时，改用 `--server <URL>`；两者都不填时默认 `http://127.0.0.1:8188`。
 - 每个镜头都会设置：关键帧、风格句 + 提示词、时长、1280×720、24fps、seed，同时强制关闭 Prompt Enhance。
 - 提交时按 `shots.json` 的 `frame_strength`（默认 0.9）设置关键帧强度，并把缩放改为 lanczos。所以即使从旧安装导出的工作流（强度 0.7），也不需要重新安装、重新导出。设为 `null` 则按导出时的原样提交。
 - `output/` 里已有结果的镜头会被跳过，加 `--force` 才会重新生成。
