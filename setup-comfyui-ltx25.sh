@@ -24,6 +24,7 @@ usage() {
       '  COMFYUI_MANAGER   1 (default) installs ComfyUI-Manager and starts with --enable-manager; 0 disables' \
       '  COMFYUI_MANAGER_NETWORK_MODE  personal_cloud (default; lets Manager install nodes while' \
       '                    listening on 0.0.0.0), public, private or offline' \
+      '  COMFYUI_CUSTOM_NODES  1 (default) installs the audio-drive workflow node packs on start; 0 disables' \
       '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
       '  RUNPOD_START_BASE_SERVICES  Default: 1; run /start.sh in startup mode when present' \
       '  TORCH_CUDA        auto (default), cu130, cu128 or cu126 PyTorch build' \
@@ -63,10 +64,26 @@ torch_driver_mismatch() {
     local tag need driver
     tag=$("$1/.venv/bin/python" -c \
         'from importlib.metadata import version; print(version("torch").partition("+")[2])' 2>/dev/null) || return 1
-    need=$(min_driver_for_torch_cuda "$tag") || return 1
-    driver=$(host_driver_major) || return 1
-    (( driver < need )) || return 1
-    printf 'Installed PyTorch (%s) needs an R%s+ host driver; this host has R%s.\n' "$tag" "$need" "$driver"
+    if need=$(min_driver_for_torch_cuda "$tag") && driver=$(host_driver_major) && (( driver < need )); then
+        printf 'Installed PyTorch (%s) needs an R%s+ host driver; this host has R%s.\n' "$tag" "$need" "$driver"
+        return 0
+    fi
+    # A build can suit the driver yet lack kernels for the GPU: cu126 wheels stop
+    # at sm_90, so a volume installed on an Ampere host fails on an RTX 5090.
+    # Same rule as torch's own warning: a GPU runs cubins of its major version.
+    "$1/.venv/bin/python" - 2>/dev/null <<'PY'
+import re, torch
+if not torch.cuda.is_available():
+    raise SystemExit(1)
+built = {int(re.sub(r'\D', '', a)) // 10 for a in torch.cuda.get_arch_list() if a.startswith('sm_')}
+for i in range(torch.cuda.device_count()):
+    major, minor = torch.cuda.get_device_capability(i)
+    if built and major not in built:
+        print(f'Installed PyTorch ({torch.__version__}) has no kernels for '
+              f'{torch.cuda.get_device_name(i)} (sm_{major}{minor}).')
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
 }
 
 # ComfyUI-Manager ships as a pip package pinned by the release's
@@ -78,6 +95,69 @@ manager_installed() {
 install_manager() {
     UV_CACHE_DIR="$INSTALL_ROOT/cache/uv" "$INSTALL_ROOT/bootstrap/bin/uv" pip install \
         --python "$1/.venv/bin/python" -r "$1/manager_requirements.txt" -c "$1/torch-constraints.txt"
+}
+
+# Custom node packs used by workflows/ltx25-audio-drive.json. They live in the
+# persistent data/custom_nodes, but their Python dependencies go into the
+# release's .venv, so each release records which packs it already has.
+CUSTOM_NODE_REPOS=(
+    https://github.com/rgthree/rgthree-comfy
+    https://github.com/melMass/comfy_mtb
+    https://github.com/kijai/ComfyUI-KJNodes
+    https://github.com/pythongosssss/ComfyUI-Custom-Scripts
+)
+node_key() { local n=${1,,}; printf '%s\n' "${n//_/-}"; }
+# Prints the pack's directory. Manager registry installs use the lowercase id
+# (comfyui-kjnodes), git installs the repo name (ComfyUI-KJNodes); both count.
+# A pack disabled in Manager (.disabled/<id>@<version>) returns 2: leave it alone.
+custom_node_dir() {
+    local want dir name
+    want=$(node_key "$2")
+    for dir in "$1"/*/ "$1"/.disabled/*/; do
+        [[ -d "$dir" ]] || continue
+        name=$(basename "$dir")
+        [[ $(node_key "${name%@*}") == "$want" ]] || continue
+        [[ "$dir" == "$1/.disabled/"* ]] && return 2
+        printf '%s\n' "${dir%/}"
+        return 0
+    done
+    return 1
+}
+install_custom_nodes() {
+    local app=$1 nodes="$INSTALL_ROOT/data/custom_nodes" marker="$1/custom-nodes-installed"
+    local uv="$INSTALL_ROOT/bootstrap/bin/uv" url name dir rc changed= constraints=()
+    [[ -f "$app/torch-constraints.txt" ]] && constraints=(-c "$app/torch-constraints.txt")
+    for url in "${CUSTOM_NODE_REPOS[@]}"; do
+        name=${url##*/}
+        rc=0; dir=$(custom_node_dir "$nodes" "$name") || rc=$?
+        (( rc == 2 )) && continue
+        if (( rc == 1 )); then
+            log "Installing custom node pack $name"
+            dir="$nodes/$name"
+            rm -rf "$nodes/.$name.tmp"
+            # Close the lock fd: git may leave background maintenance running.
+            if ! command git clone --depth 1 "$url" "$nodes/.$name.tmp" 9>&- ||
+               ! mv "$nodes/.$name.tmp" "$dir"; then
+                rm -rf "$nodes/.$name.tmp"
+                printf 'WARNING: could not download %s; install it from Manager instead.\n' "$name" >&2
+                continue
+            fi
+        fi
+        grep -qxF "$name" "$marker" 2>/dev/null && continue
+        if [[ -s "$dir/requirements.txt" ]]; then
+            log "Installing Python dependencies of $name"
+            if ! UV_CACHE_DIR="$INSTALL_ROOT/cache/uv" "$uv" pip install --python "$app/.venv/bin/python" \
+                    -r "$dir/requirements.txt" "${constraints[@]}"; then
+                printf 'WARNING: dependencies of %s failed to install; its nodes may not load.\n' "$name" >&2
+                continue
+            fi
+            changed=1
+        fi
+        printf '%s\n' "$name" >> "$marker"
+    done
+    if [[ -n $changed ]]; then
+        "$uv" pip freeze --python "$app/.venv/bin/python" > "$app/installed-packages.txt"
+    fi
 }
 
 action=${1:-install}
@@ -96,6 +176,8 @@ COMFYUI_MANAGER=${COMFYUI_MANAGER:-1}
 COMFYUI_MANAGER_NETWORK_MODE=${COMFYUI_MANAGER_NETWORK_MODE:-personal_cloud}
 [[ "$COMFYUI_MANAGER_NETWORK_MODE" =~ ^(personal_cloud|public|private|offline)$ ]] ||
     die 'COMFYUI_MANAGER_NETWORK_MODE must be personal_cloud, public, private or offline.'
+COMFYUI_CUSTOM_NODES=${COMFYUI_CUSTOM_NODES:-1}
+[[ "$COMFYUI_CUSTOM_NODES" == 0 || "$COMFYUI_CUSTOM_NODES" == 1 ]] || die 'COMFYUI_CUSTOM_NODES must be 0 or 1.'
 
 # RunPod template boot mode. This keeps the startup command idempotent:
 # - start the image's built-in services (SSH/Jupyter) when /start.sh exists;
@@ -141,7 +223,7 @@ if [[ "$action" == start ]]; then
     app="$INSTALL_ROOT/releases/$release"
     [[ -x "$app/.venv/bin/python" && -f "$app/main.py" ]] || die 'Installed release is incomplete.'
     if mismatch=$(torch_driver_mismatch "$app"); then
-        die "$mismatch Rerun install on this host, or select a host with a newer driver."
+        die "$mismatch Rerun install on this host for a matching PyTorch build."
     fi
     exec 9>"$INSTALL_ROOT/setup.lock"
     flock -n 9 || die 'An installation or ComfyUI process already holds the lock.'
@@ -187,6 +269,9 @@ if config['default'].get('network_mode') != os.environ['NETWORK_MODE']:
         config.write(f)
 PY
     fi
+    # Packs missing from data/custom_nodes (or deps missing from a new release's
+    # .venv) are added here, so existing installations get them without reinstalling.
+    if [[ "$COMFYUI_CUSTOM_NODES" == 1 ]]; then install_custom_nodes "$app"; fi
     unset HF_TOKEN HUGGING_FACE_HUB_TOKEN
     cd "$app"
     log "Starting ComfyUI on ${LISTEN}:${PORT}; output: $INSTALL_ROOT/data/output"
@@ -594,7 +679,7 @@ for index, (repo, filename, sha, size) in enumerate(plan, start=1):
     manifest.append(dict(repo=repo, filename=filename, revision=sha, bytes=size))
 
 # Community audio-driven I2V workflow kept in this repository. It needs custom
-# nodes (rgthree, mtb, KJNodes, Custom-Scripts; Manager's Install All) and only
+# nodes (rgthree, mtb, KJNodes, Custom-Scripts; installed by start) and only
 # models downloaded above, so it is added after the download plan and is optional.
 name = 'ltx25-audio-drive.json'
 local = Path(os.environ['SCRIPT_DIR']) / 'workflows' / name

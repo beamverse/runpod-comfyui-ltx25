@@ -40,6 +40,7 @@ LTX_FRAME_STRENGTH=0.9               # I2V/FLF2V 关键帧强度，见下文
 TORCH_CUDA=auto                      # 或 cu130 / cu128 / cu126，一般保持 auto
 COMFYUI_MANAGER=1                    # 默认安装并启用 ComfyUI-Manager；0 关闭
 COMFYUI_MANAGER_NETWORK_MODE=personal_cloud  # 允许在网页中安装节点；public 则禁止
+COMFYUI_CUSTOM_NODES=1               # 默认在 start 时补装音频驱动工作流所需节点包；0 关闭
 LISTEN=0.0.0.0
 PORT=8188
 HF_HOME=/workspace/.cache/huggingface
@@ -161,7 +162,7 @@ LTX-2.5-FLF2V-INT8.json   # 首尾帧生视频：上传首帧和尾帧两张图�
 LTX-2.5-AUDIO-DRIVE-INT8.json  # 音频驱动图生视频：上传首帧图片和音频
 ```
 
-音频驱动工作流是社区工作流，保存在本仓库 `workflows/ltx25-audio-drive.json`。`install` 优先读取脚本同目录下的 `workflows/`，否则从 GitHub `main` 分支下载，并和官方工作流一样按 `LTX_VARIANT`/`LTX_TEXT_ENCODER` 替换模型文件名；下载失败只打印警告，不影响安装。它依赖 rgthree-comfy、comfy-mtb、ComfyUI-KJNodes 和 ComfyUI-Custom-Scripts 四个节点包：首次打开时在 Missing Node Packs 中点 Install All，重启 ComfyUI 后强制刷新页面（`Ctrl+F5`）。
+音频驱动工作流是社区工作流，保存在本仓库 `workflows/ltx25-audio-drive.json`。`install` 优先读取脚本同目录下的 `workflows/`，否则从 GitHub `main` 分支下载，并和官方工作流一样按 `LTX_VARIANT`/`LTX_TEXT_ENCODER` 替换模型文件名；下载失败只打印警告，不影响安装。它依赖 rgthree-comfy、comfy-mtb、ComfyUI-KJNodes 和 ComfyUI-Custom-Scripts 四个节点包。`COMFYUI_CUSTOM_NODES=1`（默认）时，每次 `start`/`startup` 启动 ComfyUI 前都会检查 `$INSTALL_ROOT/data/custom_nodes`：缺失的包从 GitHub 浅克隆，并把它的 `requirements.txt` 装进当前发布版的 `.venv`（已装过依赖的包记录在发布版目录的 `custom-nodes-installed` 中，之后启动不再重复）。通过 Manager 安装的同名包（如 `comfyui-kjnodes`）视为已安装；在 Manager 中禁用的包不会被重新装回。下载或依赖安装失败只打印警告，ComfyUI 照常启动，此时可在 Missing Node Packs 中点 Install All。
 
 前三个工作流来自同一个官方模板包，与音频驱动工作流共用同一套模型，不需要额外下载。工作流文件位于：
 
@@ -207,7 +208,7 @@ COMFYUI_REF=master bash /workspace/setup-comfyui-ltx25.sh install
 
 安装锁会拒绝一边运行 ComfyUI 一边更新。同一次安装成功后才会更新 `active-release`；随后 `startup`/`start` 会启动这个激活版本。
 
-源码通过 `git clone/fetch/worktree` 获取，每个提交单独保存；脚本不会重置或覆盖用户修改，也不会自动删除旧版本。模型共用一个目录，Hugging Face 下载缓存允许复用完整文件并恢复中断下载。依赖安装或模型下载失败时不会切换当前激活版本，但更新同一提交的依赖不具备事务级回滚能力。重复安装同一版本时不会升级已安装的 PyTorch；新的 ComfyUI 版本使用新的 venv，会安装当时最新的 PyTorch。例外：已安装的 PyTorch 需要比本机更新的驱动（例如持久盘换到了驱动更旧的宿主机），或用 `TORCH_CUDA` 明确指定了其他版本时，会先卸载再重装匹配的版本。
+源码通过 `git clone/fetch/worktree` 获取，每个提交单独保存；脚本不会重置或覆盖用户修改，也不会自动删除旧版本。模型共用一个目录，Hugging Face 下载缓存允许复用完整文件并恢复中断下载。依赖安装或模型下载失败时不会切换当前激活版本，但更新同一提交的依赖不具备事务级回滚能力。重复安装同一版本时不会升级已安装的 PyTorch；新的 ComfyUI 版本使用新的 venv，会安装当时最新的 PyTorch。例外：已安装的 PyTorch 需要比本机更新的驱动（例如持久盘换到了驱动更旧的宿主机）、不支持本机 GPU 架构，或用 `TORCH_CUDA` 明确指定了其他版本时，会先卸载再重装匹配的版本。
 
 旧版若不包含 LTX-2.5 模板会明确失败。ComfyUI 前端和模板使用其 `requirements.txt` 指定的匹配依赖，不单独强制升级到不匹配版本。
 
@@ -224,7 +225,9 @@ RunPod 同一种 GPU 也可能分到不同驱动版本的宿主机，容器内�
 
 也可以用 `TORCH_CUDA=cu126|cu128|cu130` 手动指定；指定版本超过驱动支持范围时脚本会拒绝安装。RTX 50 系不能使用 `cu126`。
 
-持久盘在不同宿主机之间挂载时：`startup` 发现已安装的 PyTorch 需要比本机更新的驱动，会自动重新执行 `install` 换成匹配的 PyTorch（模型复用已下载文件，仍需要 `HF_TOKEN`）；`start` 则直接报错并提示重新安装。
+持久盘在不同宿主机之间挂载时，`start`/`startup` 启动前会检查已安装的 PyTorch 能否在本机运行：需要比本机更新的驱动，或者没有本机 GPU 架构的 kernel（例如在 R550 的 RTX 3070 主机上装成 `cu126`，`cu126` 只编译到 sm_90，换到 RTX 5090 / sm_120 无法运行）。`startup` 发现不匹配会自动重新执行 `install` 换成匹配的 PyTorch（模型复用已下载文件，仍需要 `HF_TOKEN`）；`start` 则直接报错并提示重新安装。
+
+先用便宜的 GPU Pod 往网络卷下载模型、再挂到 RTX 5090 上运行时，建议安装时指定 `TORCH_CUDA=cu128`（要求该主机驱动 R570+），这样 5090 上无需重装 PyTorch；否则首次 `startup` 会自动重装一次。
 
 ### 安装时报 "CUDA is unavailable"
 
@@ -315,8 +318,8 @@ SSH 公钥更建议添加到 RunPod Account 的 SSH Keys，而不是硬编码进
 
 - 独立 Python 3.12、按驱动选择 CUDA 版本的 PyTorch、ComfyUI 及其匹配依赖。
 - 从已安装模板包中提取官方 LTX-2.5 文生视频工作流，按 `LTX_VARIANT` 把主模型、文本编码器和 Prompt Enhancer 统一替换为 INT8（默认）或 BF16 版本；上游模板无论发布哪种精度都能处理。I2V/FLF2V 工作流另按 `LTX_FRAME_STRENGTH` 调整关键帧强度和缩放方法。
-- 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；另外下载官方模板未使用、但社区工作流常用的 Conv VAE（`ltx-2.5-video-vae-conv-bf16.safetensors`，约 1.4 GiB，更快更轻）；默认安装 ComfyUI-Manager，但不预装任何 custom nodes，基础工作流使用 ComfyUI 原生节点。
-- 通过 Manager 安装的 custom nodes 位于 `$INSTALL_ROOT/data/custom_nodes`，可跨版本保留；但它们的 Python 依赖装在当前发布版的 `.venv` 里。`install` 升级到新的 ComfyUI 版本会新建 `.venv`，之后需要在 Manager 中修复或重装这些节点的依赖。
+- 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；另外下载官方模板未使用、但社区工作流常用的 Conv VAE（`ltx-2.5-video-vae-conv-bf16.safetensors`，约 1.4 GiB，更快更轻）；默认安装 ComfyUI-Manager；基础工作流只用 ComfyUI 原生节点，`start` 另外补装音频驱动工作流需要的四个节点包（见上文）。
+- 通过 Manager 安装的 custom nodes 位于 `$INSTALL_ROOT/data/custom_nodes`，可跨版本保留；但它们的 Python 依赖装在当前发布版的 `.venv` 里。`install` 升级到新的 ComfyUI 版本会新建 `.venv`，之后需要在 Manager 中修复或重装这些节点的依赖（音频驱动工作流的四个节点包除外，`start` 会自动为新 `.venv` 补装依赖）。
 - 检查 Hugging Face 授权、下载前剩余空间、模型文件大小、Python 依赖和实际 CUDA BF16 矩阵运算。
 - 记录源码 commit、已安装依赖版本和模型仓库 revision，便于复查。
 - 当前模型组合会占用大量空间；Python、PyTorch、缓存、旧源码环境和输出也会持续占用持久盘，脚本不会自动清理旧版本。
