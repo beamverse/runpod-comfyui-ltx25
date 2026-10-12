@@ -252,7 +252,24 @@ S3 卷上的注意事项：
 - 容器盘建议至少 40 GB。
 - 通过 Manager 安装的 custom nodes 在容器盘上，每次开机都会丢失；音频驱动工作流的四个节点包会自动补装。
 - 不要把 `HF_HOME`、`PIP_CACHE_DIR` 指向 S3 卷。
+- 可以先用 CPU Pod 把模型下载到卷上，见下一节。
 - 在普通卷上从旧版本迁移时，若 `$INSTALL_ROOT/data` 下已有非空的 `models` 等目录，而 `DATA_ROOT` 指向别处，脚本会报错，请先手动移动这些目录的内容。
+
+## 用 CPU Pod 预先下载模型
+
+`download` 只做 `install` 中与 GPU 无关的部分：检查模型权限、确定 ComfyUI 版本、下载模型、写入工作流。它不安装 ComfyUI 和 PyTorch，模板只装 `comfyui-workflow-templates` 中的 JSON 子包，不装几百 MB 的预览素材。
+
+`startup` 发现没有 GPU（`nvidia-smi -L` 失败）时自动执行 `download`，完成后打印提示并保持空闲，可以 SSH 进去检查；需要手动停止 Pod。所以 CPU Pod 和 GPU Pod 可以用同一个模板、同一个启动命令：
+
+1. 在有 RTX 5090 的数据中心建网络卷，在同一数据中心开 CPU Pod 挂上它（确认该数据中心的 CPU Pod 支持挂载网络卷）。
+2. 日志出现 `Models are ready in ...` 后停止 CPU Pod。
+3. 开 GPU Pod 挂同一个卷，`startup` 安装代码，校验并复用卷上的模型，然后启动 ComfyUI。
+
+`COMFYUI_REF`、`LTX_VARIANT`、`LTX_TEXT_ENCODER` 两边要设成一样，否则 GPU Pod 会按自己的设置再下载缺少的模型文件。也可以手动执行：
+
+```bash
+HF_TOKEN=hf_xxx bash /workspace/setup-comfyui-ltx25.sh download
+```
 
 ### 安装时报 "CUDA is unavailable"
 

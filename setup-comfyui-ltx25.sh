@@ -10,10 +10,12 @@ log() { printf '\n[comfyui-ltx25] %s\n' "$*"; }
 trap 'printf "ERROR: setup stopped at line %s; correct the problem and rerun.\n" "$LINENO" >&2' ERR
 usage() {
     printf '%s\n' \
-      'Usage: bash setup-comfyui-ltx25.sh [install|start|startup|help] [ComfyUI arguments...]' \
+      'Usage: bash setup-comfyui-ltx25.sh [install|download|start|startup|help] [ComfyUI arguments...]' \
       'install (default): install/update ComfyUI + CUDA PyTorch + LTX-2.5 models' \
+      'download: LTX-2.5 models and workflows only; no GPU needed (e.g. a CPU Pod filling a volume)' \
       'start: run the last successfully installed release; no token needed' \
-      'startup: RunPod boot mode; start base services, install once if needed, then start ComfyUI' \
+      'startup: RunPod boot mode; start base services, install once if needed, then start ComfyUI;' \
+      '         without a GPU it runs download and keeps the Pod idle' \
       'Environment:' \
       '  HF_TOKEN          Hugging Face read token; hidden prompt if omitted' \
       '  INSTALL_ROOT      Code (ComfyUI, Python, venv). Default: /workspace/comfyui-ltx25, or' \
@@ -198,7 +200,7 @@ action=${1:-install}
 if (($#)); then shift; fi
 case "$action" in
     help|--help|-h) usage; exit 0 ;;
-    install|start|startup) ;;
+    install|download|start|startup) ;;
     *) usage >&2; die "Unknown action: $action" ;;
 esac
 [[ "$action" == start || "$action" == startup || $# == 0 ]] || die 'Only start/startup accepts extra ComfyUI arguments.'
@@ -241,6 +243,16 @@ if [[ "$action" == startup ]]; then
     [[ -f "$script_self" ]] || die 'Cannot resolve installer script path.'
 
     # Invoke through bash: the script may lack the executable bit after upload/clone.
+    if ! nvidia-smi -L >/dev/null 2>&1; then
+        log 'No GPU found: downloading models only (CPU Pod mode)'
+        if bash "$script_self" download; then
+            log "Models are ready in $DATA_ROOT. Stop this Pod, then attach the volume to a GPU Pod."
+        else
+            printf 'ERROR: model download failed. Pod kept alive for SSH/Jupyter;\n' >&2
+            printf 'fix the cause, then rerun: bash %q download, or restart the Pod.\n' "$script_self" >&2
+        fi
+        exec sleep infinity
+    fi
     need_install=
     if [[ ! -f "$INSTALL_ROOT/active-release" ]]; then
         log 'First boot: no active release found; running one-time installation'
@@ -336,7 +348,8 @@ fi
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || die 'This installer targets Linux x86_64.'
 [[ $EUID == 0 ]] || die 'Install requires root inside the container (apt packages).'
 command -v apt-get >/dev/null || die 'Use an Ubuntu/Debian container with apt-get.'
-command -v nvidia-smi >/dev/null || die 'GPU is not exposed. Deploy a GPU-enabled Pod first.'
+if [[ "$action" == install ]]; then
+command -v nvidia-smi >/dev/null || die 'GPU is not exposed. Deploy a GPU-enabled Pod first, or use download.'
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
 driver=$(host_driver_major) || die 'Cannot determine NVIDIA driver version.'
 TORCH_CUDA=${TORCH_CUDA:-auto}
@@ -349,6 +362,7 @@ else
     torch_cuda_explicit=1
 fi
 log "Host driver R$driver: using the $TORCH_CUDA PyTorch build"
+fi
 LTX_VARIANT=${LTX_VARIANT:-int8}
 [[ "$LTX_VARIANT" == int8 || "$LTX_VARIANT" == bf16 ]] || die 'LTX_VARIANT must be int8 or bf16.'
 LTX_TEXT_ENCODER=${LTX_TEXT_ENCODER:-$LTX_VARIANT}
@@ -435,6 +449,24 @@ else
 fi
 release=$(git -C "$repo" rev-parse 'FETCH_HEAD^{commit}')
 [[ "$release" =~ ^[a-f0-9]{40}$ ]] || die 'Invalid upstream commit.'
+if [[ "$action" == download ]]; then
+    # The download plan only needs the release's pinned workflow templates, which
+    # are plain data packages: install them into the bootstrap venv, skip ComfyUI.
+    log "Installing the workflow templates pinned by ComfyUI $ref"
+    mapfile -t templates < <(git -C "$repo" show "$release:requirements.txt" |
+        grep -E '^comfyui-workflow-templates([^-a-z]|$)' || true)
+    (( ${#templates[@]} )) || die "ComfyUI $ref pins no comfyui-workflow-templates package."
+    py="$INSTALL_ROOT/bootstrap/bin/python"
+    "$uv" pip install --python "$py" --no-deps "${templates[@]}"
+    # Newer releases split the package: the JSON files sit in -json, the other
+    # parts are ~500MB of preview media the download plan does not read.
+    mapfile -t templates < <("$py" -c 'from importlib.metadata import requires
+for r in requires("comfyui-workflow-templates") or []:
+    if r.startswith("comfyui-workflow-templates-json") and ";" not in r: print(r)')
+    if (( ${#templates[@]} )); then
+        "$uv" pip install --python "$py" --no-deps "${templates[@]}"
+    fi
+else
 app="$INSTALL_ROOT/releases/$release"
 if [[ ! -e "$app" ]]; then
     git -C "$repo" worktree add --detach "$app" "$release"
@@ -511,6 +543,7 @@ torch.cuda.synchronize()
 assert torch.isfinite(result).all().item(), 'CUDA calculation failed.'
 print('CUDA calculation OK:', torch.cuda.get_device_name(0), torch.__version__, torch.version.cuda)
 PY
+fi
 
 log 'Locating the release-matched LTX-2.5 template'
 template=$("$py" - <<'PY'
@@ -777,6 +810,11 @@ print(f'{len(plan)} model files ready. Workflows in {target.parent}: {", ".join(
 PY
 
 unset HF_TOKEN HUGGING_FACE_HUB_TOKEN
+if [[ "$action" == download ]]; then
+    log "Download complete for ComfyUI $ref templates"
+    printf 'Models/workflows: %s\n' "$DATA_ROOT"
+    exit 0
+fi
 "$uv" pip freeze --python "$py" > "$app/installed-packages.txt"
 printf '%s\n' "$release" > "$INSTALL_ROOT/active-release.tmp"
 mv "$INSTALL_ROOT/active-release.tmp" "$INSTALL_ROOT/active-release"
