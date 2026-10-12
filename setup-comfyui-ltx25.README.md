@@ -53,7 +53,7 @@ HF_TOKEN=<RunPod Secret>             # 首次安装需要
 
 `COMFYUI_MANAGER=1`（默认）时，`install` 按 ComfyUI 发布版自带的 `manager_requirements.txt` 安装固定版本的 ComfyUI-Manager，`start`/`startup` 自动加上 `--enable-manager`。由旧版脚本安装、尚未包含 Manager 的环境，会在下次 `start` 时就地补装，无需重新安装，也不需要 `HF_TOKEN`；补装失败只会打印警告，ComfyUI 照常启动，只是没有 Manager。没有 `manager_requirements.txt` 的旧 ComfyUI 版本不支持 `--enable-manager`，脚本会跳过。
 
-ComfyUI 监听 `0.0.0.0` 时，Manager 默认的 `network_mode = public` 会拒绝所有节点安装（点 Install All 无效）。因此 `start` 每次启动都会把 `$DATA_ROOT/user/__manager/config.ini` 的 `network_mode` 设为 `COMFYUI_MANAGER_NETWORK_MODE`（默认 `personal_cloud`，Manager 文档推荐用于 RunPod 等云环境）。注意：ComfyUI 没有登录保护，任何拿到 RunPod 代理地址的人都能通过 Manager 安装并运行 custom nodes 代码；不希望如此时设为 `public`，改用 SSH 手动安装节点。
+ComfyUI 监听 `0.0.0.0` 时，Manager 默认的 `network_mode = public` 会拒绝所有节点安装（点 Install All 无效）。因此 `start` 每次启动都会把 `$INSTALL_ROOT/data/user/__manager/config.ini` 的 `network_mode` 设为 `COMFYUI_MANAGER_NETWORK_MODE`（默认 `personal_cloud`，Manager 文档推荐用于 RunPod 等云环境）。注意：ComfyUI 没有登录保护，任何拿到 RunPod 代理地址的人都能通过 Manager 安装并运行 custom nodes 代码；不希望如此时设为 `public`，改用 SSH 手动安装节点。
 
 注意脚本读取的是 `COMFYUI_REF`，不是 `COMFYUI_VERSION`。如果希望固定 ComfyUI v0.39.0，请使用 `COMFYUI_REF=v0.39.0`。如果设置为 `latest`，每次手动执行 `install` 时会查询最新正式发布版。
 
@@ -237,7 +237,7 @@ RunPod 同一种 GPU 也可能分到不同驱动版本的宿主机，容器内�
 脚本把目录分为两部分：
 
 - `INSTALL_ROOT`：代码，包括 ComfyUI 发布版、Python、venv、uv 缓存、custom_nodes 和 ComfyUI 的 SQLite 数据库。
-- `DATA_ROOT`：数据，包括 `models`、`input`、`output`、`user`（工作流、设置、Manager 配置）。ComfyUI 的 `--base-directory` 仍是 `$INSTALL_ROOT/data`，其中这四个目录是指向 `DATA_ROOT` 的软链接。
+- `DATA_ROOT`：数据，包括 `models`、`input`、`output` 和 `user/default`（工作流、设置）。ComfyUI 的 `--base-directory` 仍是 `$INSTALL_ROOT/data`，其中这几个目录是指向 `DATA_ROOT` 的软链接。`user` 下的其他内容（Manager 配置和缓存、`comfyui.log`）留在本地：Manager 用 `shutil.copy` 复制文件时会设置权限，S3 卷会拒绝。
 
 未设置 `INSTALL_ROOT` 时，脚本在 `/workspace/comfyui-ltx25` 试一次 `chmod`：
 
@@ -252,6 +252,8 @@ S3 卷上的注意事项：
 - 容器盘建议至少 40 GB。
 - 通过 Manager 安装的 custom nodes 在容器盘上，每次开机都会丢失；音频驱动工作流的四个节点包会自动补装。
 - 不要把 `HF_HOME`、`PIP_CACHE_DIR` 指向 S3 卷。
+- 下载模型时日志里的 `Could not set the permissions on the file ...incomplete` 是 huggingface_hub 的警告，文件本身已完整下载，可以忽略。
+- 如果宿主机驱动低于 R580，只能装 cu128 版 PyTorch，ComfyUI 会提示 `You need pytorch with cu130 or higher to use optimized CUDA operations`，comfy-kitchen 的 CUDA 加速被关闭（INT8 模型会走较慢的通用实现）。这是驱动限制，容器里无法解决；需要更快时选 R580+ 驱动的主机。
 - 可以先用 CPU Pod 把模型下载到卷上，见下一节。
 - 在普通卷上从旧版本迁移时，若 `$INSTALL_ROOT/data` 下已有非空的 `models` 等目录，而 `DATA_ROOT` 指向别处，脚本会报错，请先手动移动这些目录的内容。
 

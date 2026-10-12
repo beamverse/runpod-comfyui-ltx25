@@ -114,13 +114,18 @@ supports_permissions() {
 }
 data_is_split() { [[ $(realpath -m "$DATA_ROOT") != $(realpath -m "$INSTALL_ROOT/data") ]]; }
 # ComfyUI's base directory is always $INSTALL_ROOT/data. With DATA_ROOT elsewhere,
-# models/input/output/user there are symlinks into DATA_ROOT, while custom_nodes
-# (code) and temp stay on the local disk next to the release.
+# models/input/output and user/default (workflows, settings) there are symlinks
+# into DATA_ROOT, while custom_nodes (code), temp and the rest of user stay on the
+# local disk: Manager copies files into user/__manager with shutil.copy, whose
+# chmod an S3-backed volume rejects, and comfyui.log is appended there constantly.
 link_data_dirs() {
     local data="$INSTALL_ROOT/data" name
     mkdir -p "$data/custom_nodes"
     data_is_split || return 0
-    for name in models input output user; do
+    # Earlier versions linked all of user/.
+    [[ -L "$data/user" ]] && rm "$data/user"
+    mkdir -p "$data/user"
+    for name in models input output user/default; do
         mkdir -p "$DATA_ROOT/$name"
         if [[ -L "$data/$name" ]]; then
             [[ $(readlink "$data/$name") == "$DATA_ROOT/$name" ]] && continue
