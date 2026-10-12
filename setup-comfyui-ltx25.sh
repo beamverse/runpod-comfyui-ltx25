@@ -21,7 +21,8 @@ usage() {
       '  LTX_VARIANT       int8 (default, fits 32GB VRAM) or bf16 (full precision, upstream template)' \
       '  LTX_TEXT_ENCODER  int8 or bf16 Gemma 4 text encoder; default: same as LTX_VARIANT' \
       '  LTX_FRAME_STRENGTH  I2V/FLF2V keyframe strength, 0-1; default 0.9 (upstream 0.7)' \
-      '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
+      '  COMFYUI_MANAGER   1 (default) installs ComfyUI-Manager and starts with --enable-manager; 0 disables' \
+  '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
       '  RUNPOD_START_BASE_SERVICES  Default: 1; run /start.sh in startup mode when present' \
       '  TORCH_CUDA        auto (default), cu130, cu128 or cu126 PyTorch build' \
       'Requires a GPU-enabled Linux x86_64 container and an R525 or newer host driver' \
@@ -66,6 +67,17 @@ torch_driver_mismatch() {
     printf 'Installed PyTorch (%s) needs an R%s+ host driver; this host has R%s.\n' "$tag" "$need" "$driver"
 }
 
+# ComfyUI-Manager ships as a pip package pinned by the release's
+# manager_requirements.txt; releases without that file predate --enable-manager.
+manager_installed() {
+    "$1/.venv/bin/python" -c \
+        'import importlib.util, sys; sys.exit(importlib.util.find_spec("comfyui_manager") is None)' 2>/dev/null
+}
+install_manager() {
+    UV_CACHE_DIR="$INSTALL_ROOT/cache/uv" "$INSTALL_ROOT/bootstrap/bin/uv" pip install \
+        --python "$1/.venv/bin/python" -r "$1/manager_requirements.txt" -c "$1/torch-constraints.txt"
+}
+
 action=${1:-install}
 if (($#)); then shift; fi
 case "$action" in
@@ -77,6 +89,8 @@ esac
 INSTALL_ROOT=${INSTALL_ROOT:-/workspace/comfyui-ltx25}
 [[ "$INSTALL_ROOT" == /* && "$INSTALL_ROOT" != / ]] || die 'INSTALL_ROOT must be an absolute, non-root directory.'
 export INSTALL_ROOT
+COMFYUI_MANAGER=${COMFYUI_MANAGER:-1}
+[[ "$COMFYUI_MANAGER" == 0 || "$COMFYUI_MANAGER" == 1 ]] || die 'COMFYUI_MANAGER must be 0 or 1.'
 
 # RunPod template boot mode. This keeps the startup command idempotent:
 # - start the image's built-in services (SSH/Jupyter) when /start.sh exists;
@@ -139,11 +153,24 @@ host = os.environ['LISTEN']
 with socket.socket(socket.AF_INET6 if ':' in host else socket.AF_INET) as s:
     s.bind((host, port))
 PY
+    manager_args=()
+    if [[ "$COMFYUI_MANAGER" == 1 && -f "$app/manager_requirements.txt" ]]; then
+        # Releases installed by older scripts lack the package; add it in place.
+        if ! manager_installed "$app"; then
+            log 'Installing ComfyUI-Manager into the active release'
+            if install_manager "$app"; then
+                "$INSTALL_ROOT/bootstrap/bin/uv" pip freeze --python "$app/.venv/bin/python" > "$app/installed-packages.txt"
+            else
+                printf 'WARNING: ComfyUI-Manager installation failed; starting without it.\n' >&2
+            fi
+        fi
+        if manager_installed "$app"; then manager_args=(--enable-manager); fi
+    fi
     unset HF_TOKEN HUGGING_FACE_HUB_TOKEN
     cd "$app"
     log "Starting ComfyUI on ${LISTEN}:${PORT}; output: $INSTALL_ROOT/data/output"
     exec "$app/.venv/bin/python" main.py --base-directory "$INSTALL_ROOT/data" \
-        --listen "$LISTEN" --port "$PORT" "$@"
+        --listen "$LISTEN" --port "$PORT" "${manager_args[@]}" "$@"
 fi
 
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || die 'This installer targets Linux x86_64.'
@@ -276,6 +303,14 @@ for name in ('torch', 'torchvision', 'torchaudio'):
     print(f'{name}=={version(name)}')
 PY
 "$uv" pip install --python "$py" -r "$app/requirements.txt" -c "$app/torch-constraints.txt"
+if [[ "$COMFYUI_MANAGER" == 1 ]]; then
+    if [[ -f "$app/manager_requirements.txt" ]]; then
+        log 'Installing release-matched ComfyUI-Manager'
+        install_manager "$app"
+    else
+        log "ComfyUI $ref has no manager_requirements.txt; skipping ComfyUI-Manager"
+    fi
+fi
 "$uv" pip check --python "$py"
 "$py" - <<'PY'
 import torch

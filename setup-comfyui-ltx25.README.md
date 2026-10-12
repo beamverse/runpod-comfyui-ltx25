@@ -38,6 +38,7 @@ LTX_VARIANT=int8                     # 或 bf16，见下文
 LTX_TEXT_ENCODER=                    # 留空跟随 LTX_VARIANT；可单独设 bf16，见下文
 LTX_FRAME_STRENGTH=0.9               # I2V/FLF2V 关键帧强度，见下文
 TORCH_CUDA=auto                      # 或 cu130 / cu128 / cu126，一般保持 auto
+COMFYUI_MANAGER=1                    # 默认安装并启用 ComfyUI-Manager；0 关闭
 LISTEN=0.0.0.0
 PORT=8188
 HF_HOME=/workspace/.cache/huggingface
@@ -46,6 +47,8 @@ PYTHONUNBUFFERED=1
 JUPYTER_PASSWORD=<your-password>     # 使用 Jupyter 时
 HF_TOKEN=<RunPod Secret>             # 首次安装需要
 ```
+
+`COMFYUI_MANAGER=1`（默认）时，`install` 按 ComfyUI 发布版自带的 `manager_requirements.txt` 安装固定版本的 ComfyUI-Manager，`start`/`startup` 自动加上 `--enable-manager`。由旧版脚本安装、尚未包含 Manager 的环境，会在下次 `start` 时就地补装，无需重新安装，也不需要 `HF_TOKEN`；补装失败只会打印警告，ComfyUI 照常启动，只是没有 Manager。没有 `manager_requirements.txt` 的旧 ComfyUI 版本不支持 `--enable-manager`，脚本会跳过。
 
 注意脚本读取的是 `COMFYUI_REF`，不是 `COMFYUI_VERSION`。如果希望固定 ComfyUI v0.39.0，请使用 `COMFYUI_REF=v0.39.0`。如果设置为 `latest`，每次手动执行 `install` 时会查询最新正式发布版。
 
@@ -306,7 +309,8 @@ SSH 公钥更建议添加到 RunPod Account 的 SSH Keys，而不是硬编码进
 
 - 独立 Python 3.12、按驱动选择 CUDA 版本的 PyTorch、ComfyUI 及其匹配依赖。
 - 从已安装模板包中提取官方 LTX-2.5 文生视频工作流，按 `LTX_VARIANT` 把主模型、文本编码器和 Prompt Enhancer 统一替换为 INT8（默认）或 BF16 版本；上游模板无论发布哪种精度都能处理。I2V/FLF2V 工作流另按 `LTX_FRAME_STRENGTH` 调整关键帧强度和缩放方法。
-- 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；不安装 Manager 或额外 custom nodes，基础工作流使用 ComfyUI 原生节点。
+- 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；默认安装 ComfyUI-Manager，但不预装任何 custom nodes，基础工作流使用 ComfyUI 原生节点。
+- 通过 Manager 安装的 custom nodes 位于 `$INSTALL_ROOT/data/custom_nodes`，可跨版本保留；但它们的 Python 依赖装在当前发布版的 `.venv` 里。`install` 升级到新的 ComfyUI 版本会新建 `.venv`，之后需要在 Manager 中修复或重装这些节点的依赖。
 - 检查 Hugging Face 授权、下载前剩余空间、模型文件大小、Python 依赖和实际 CUDA BF16 矩阵运算。
 - 记录源码 commit、已安装依赖版本和模型仓库 revision，便于复查。
 - 当前模型组合会占用大量空间；Python、PyTorch、缓存、旧源码环境和输出也会持续占用持久盘，脚本不会自动清理旧版本。
