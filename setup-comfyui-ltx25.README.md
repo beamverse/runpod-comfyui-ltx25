@@ -32,7 +32,8 @@ ssh      22     # 可选
 环境变量建议：
 
 ```text
-INSTALL_ROOT=/workspace/comfyui-ltx25
+INSTALL_ROOT=                        # 留空自动选择，见“S3 网络卷（geesefs）”
+DATA_ROOT=                           # 留空：/workspace/comfyui-ltx25/data
 COMFYUI_REF=v0.39.0
 LTX_VARIANT=int8                     # 或 bf16，见下文
 LTX_TEXT_ENCODER=                    # 留空跟随 LTX_VARIANT；可单独设 bf16，见下文
@@ -43,7 +44,7 @@ COMFYUI_MANAGER_NETWORK_MODE=personal_cloud  # 允许在网页中安装节点；
 COMFYUI_CUSTOM_NODES=1               # 默认在 start 时补装音频驱动工作流所需节点包；0 关闭
 LISTEN=0.0.0.0
 PORT=8188
-HF_HOME=/workspace/.cache/huggingface
+HF_HOME=/workspace/.cache/huggingface   # S3 网络卷上不要设置这两项（见下文）
 PIP_CACHE_DIR=/workspace/.cache/pip
 PYTHONUNBUFFERED=1
 JUPYTER_PASSWORD=<your-password>     # 使用 Jupyter 时
@@ -52,7 +53,7 @@ HF_TOKEN=<RunPod Secret>             # 首次安装需要
 
 `COMFYUI_MANAGER=1`（默认）时，`install` 按 ComfyUI 发布版自带的 `manager_requirements.txt` 安装固定版本的 ComfyUI-Manager，`start`/`startup` 自动加上 `--enable-manager`。由旧版脚本安装、尚未包含 Manager 的环境，会在下次 `start` 时就地补装，无需重新安装，也不需要 `HF_TOKEN`；补装失败只会打印警告，ComfyUI 照常启动，只是没有 Manager。没有 `manager_requirements.txt` 的旧 ComfyUI 版本不支持 `--enable-manager`，脚本会跳过。
 
-ComfyUI 监听 `0.0.0.0` 时，Manager 默认的 `network_mode = public` 会拒绝所有节点安装（点 Install All 无效）。因此 `start` 每次启动都会把 `$INSTALL_ROOT/data/user/__manager/config.ini` 的 `network_mode` 设为 `COMFYUI_MANAGER_NETWORK_MODE`（默认 `personal_cloud`，Manager 文档推荐用于 RunPod 等云环境）。注意：ComfyUI 没有登录保护，任何拿到 RunPod 代理地址的人都能通过 Manager 安装并运行 custom nodes 代码；不希望如此时设为 `public`，改用 SSH 手动安装节点。
+ComfyUI 监听 `0.0.0.0` 时，Manager 默认的 `network_mode = public` 会拒绝所有节点安装（点 Install All 无效）。因此 `start` 每次启动都会把 `$DATA_ROOT/user/__manager/config.ini` 的 `network_mode` 设为 `COMFYUI_MANAGER_NETWORK_MODE`（默认 `personal_cloud`，Manager 文档推荐用于 RunPod 等云环境）。注意：ComfyUI 没有登录保护，任何拿到 RunPod 代理地址的人都能通过 Manager 安装并运行 custom nodes 代码；不希望如此时设为 `public`，改用 SSH 手动安装节点。
 
 注意脚本读取的是 `COMFYUI_REF`，不是 `COMFYUI_VERSION`。如果希望固定 ComfyUI v0.39.0，请使用 `COMFYUI_REF=v0.39.0`。如果设置为 `latest`，每次手动执行 `install` 时会查询最新正式发布版。
 
@@ -228,6 +229,30 @@ RunPod 同一种 GPU 也可能分到不同驱动版本的宿主机，容器内�
 持久盘在不同宿主机之间挂载时，`start`/`startup` 启动前会检查已安装的 PyTorch 能否在本机运行：需要比本机更新的驱动，或者没有本机 GPU 架构的 kernel（例如在 R550 的 RTX 3070 主机上装成 `cu126`，`cu126` 只编译到 sm_90，换到 RTX 5090 / sm_120 无法运行）。`startup` 发现不匹配会自动重新执行 `install` 换成匹配的 PyTorch（模型复用已下载文件，仍需要 `HF_TOKEN`）；`start` 则直接报错并提示重新安装。
 
 先用便宜的 GPU Pod 往网络卷下载模型、再挂到 RTX 5090 上运行时，建议安装时指定 `TORCH_CUDA=cu128`（要求该主机驱动 R570+），这样 5090 上无需重装 PyTorch；否则首次 `startup` 会自动重装一次。
+
+## S3 网络卷（geesefs）
+
+部分 RunPod 数据中心的网络卷是 S3 兼容存储，`mount` 显示为 `fuse.geesefs`。它不支持 `chmod`：所有文件固定为 `0666`、属主 `nobody`，因此其中的 venv、uv 管理的 Python 都无法执行；venv 和 Git 仓库的大量小文件放在对象存储上也非常慢。
+
+脚本把目录分为两部分：
+
+- `INSTALL_ROOT`：代码，包括 ComfyUI 发布版、Python、venv、uv 缓存、custom_nodes 和 ComfyUI 的 SQLite 数据库。
+- `DATA_ROOT`：数据，包括 `models`、`input`、`output`、`user`（工作流、设置、Manager 配置）。ComfyUI 的 `--base-directory` 仍是 `$INSTALL_ROOT/data`，其中这四个目录是指向 `DATA_ROOT` 的软链接。
+
+未设置 `INSTALL_ROOT` 时，脚本在 `/workspace/comfyui-ltx25` 试一次 `chmod`：
+
+- 成功（普通卷）：代码和数据都放在 `/workspace/comfyui-ltx25`，与旧版本完全相同。
+- 失败（S3 卷）：代码放在容器盘 `/opt/comfyui-ltx25`，数据仍在 `/workspace/comfyui-ltx25/data`。
+
+明确设置的 `INSTALL_ROOT` 不支持权限时，脚本直接报错，不会开始安装。
+
+S3 卷上的注意事项：
+
+- 容器盘在 Pod 停止后清空，所以每次开机 `startup` 都会重新安装 ComfyUI 和 PyTorch（几分钟），**每次启动都需要 `HF_TOKEN`**。模型已在卷上，只做校验，不会重新下载。
+- 容器盘建议至少 40 GB。
+- 通过 Manager 安装的 custom nodes 在容器盘上，每次开机都会丢失；音频驱动工作流的四个节点包会自动补装。
+- 不要把 `HF_HOME`、`PIP_CACHE_DIR` 指向 S3 卷。
+- 在普通卷上从旧版本迁移时，若 `$INSTALL_ROOT/data` 下已有非空的 `models` 等目录，而 `DATA_ROOT` 指向别处，脚本会报错，请先手动移动这些目录的内容。
 
 ### 安装时报 "CUDA is unavailable"
 

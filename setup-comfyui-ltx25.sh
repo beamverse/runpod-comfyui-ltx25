@@ -16,7 +16,10 @@ usage() {
       'startup: RunPod boot mode; start base services, install once if needed, then start ComfyUI' \
       'Environment:' \
       '  HF_TOKEN          Hugging Face read token; hidden prompt if omitted' \
-      '  INSTALL_ROOT      Default: /workspace/comfyui-ltx25 (persistent volume)' \
+      '  INSTALL_ROOT      Code (ComfyUI, Python, venv). Default: /workspace/comfyui-ltx25, or' \
+      '                    /opt/comfyui-ltx25 when /workspace rejects chmod (S3-backed network volume)' \
+      '  DATA_ROOT         Models, input, output, user settings. Default: /workspace/comfyui-ltx25/data' \
+      '                    when INSTALL_ROOT is unset, otherwise $INSTALL_ROOT/data' \
       '  COMFYUI_REF       latest (default), master, or a release tag such as v0.32.0' \
       '  LTX_VARIANT       int8 (default, fits 32GB VRAM) or bf16 (full precision, upstream template)' \
       '  LTX_TEXT_ENCODER  int8 or bf16 Gemma 4 text encoder; default: same as LTX_VARIANT' \
@@ -97,6 +100,37 @@ install_manager() {
         --python "$1/.venv/bin/python" -r "$1/manager_requirements.txt" -c "$1/torch-constraints.txt"
 }
 
+# S3-backed RunPod network volumes (fuse.geesefs) store every file as 0666 and
+# reject chmod, so a venv or uv-managed Python there could never execute.
+supports_permissions() {
+    local probe ok=1
+    mkdir -p "$1" 2>/dev/null || return 1
+    probe=$(mktemp "$1/.permission-probe.XXXXXX" 2>/dev/null) || return 1
+    if chmod 700 "$probe" 2>/dev/null && [[ $(stat -c %a "$probe") == 700 ]]; then ok=0; fi
+    rm -f "$probe"
+    return $ok
+}
+data_is_split() { [[ $(realpath -m "$DATA_ROOT") != $(realpath -m "$INSTALL_ROOT/data") ]]; }
+# ComfyUI's base directory is always $INSTALL_ROOT/data. With DATA_ROOT elsewhere,
+# models/input/output/user there are symlinks into DATA_ROOT, while custom_nodes
+# (code) and temp stay on the local disk next to the release.
+link_data_dirs() {
+    local data="$INSTALL_ROOT/data" name
+    mkdir -p "$data/custom_nodes"
+    data_is_split || return 0
+    for name in models input output user; do
+        mkdir -p "$DATA_ROOT/$name"
+        if [[ -L "$data/$name" ]]; then
+            [[ $(readlink "$data/$name") == "$DATA_ROOT/$name" ]] && continue
+            rm "$data/$name"
+        elif [[ -e "$data/$name" ]]; then
+            rmdir "$data/$name" 2>/dev/null ||
+                die "$data/$name is a non-empty directory; move its contents to $DATA_ROOT/$name first."
+        fi
+        ln -s "$DATA_ROOT/$name" "$data/$name"
+    done
+}
+
 # Custom node packs used by workflows/ltx25-audio-drive.json. They live in the
 # persistent data/custom_nodes, but their Python dependencies go into the
 # release's .venv, so each release records which packs it already has.
@@ -168,9 +202,23 @@ case "$action" in
     *) usage >&2; die "Unknown action: $action" ;;
 esac
 [[ "$action" == start || "$action" == startup || $# == 0 ]] || die 'Only start/startup accepts extra ComfyUI arguments.'
-INSTALL_ROOT=${INSTALL_ROOT:-/workspace/comfyui-ltx25}
+if [[ -z ${INSTALL_ROOT:-} ]]; then
+    DATA_ROOT=${DATA_ROOT:-/workspace/comfyui-ltx25/data}
+    if supports_permissions /workspace/comfyui-ltx25; then
+        INSTALL_ROOT=/workspace/comfyui-ltx25
+    else
+        # The container disk is wiped when the Pod stops, so startup reinstalls
+        # the code on each boot; models in DATA_ROOT are verified and reused.
+        INSTALL_ROOT=/opt/comfyui-ltx25
+        log "/workspace rejects chmod (S3-backed network volume?); code goes to $INSTALL_ROOT on the container disk, data stays in $DATA_ROOT"
+    fi
+fi
+DATA_ROOT=${DATA_ROOT:-$INSTALL_ROOT/data}
 [[ "$INSTALL_ROOT" == /* && "$INSTALL_ROOT" != / ]] || die 'INSTALL_ROOT must be an absolute, non-root directory.'
-export INSTALL_ROOT
+[[ "$DATA_ROOT" == /* && "$DATA_ROOT" != / ]] || die 'DATA_ROOT must be an absolute, non-root directory.'
+supports_permissions "$INSTALL_ROOT" ||
+    die "$INSTALL_ROOT does not support file permissions (S3-backed network volume?); set INSTALL_ROOT to a container-disk path and DATA_ROOT to the volume."
+export INSTALL_ROOT DATA_ROOT
 COMFYUI_MANAGER=${COMFYUI_MANAGER:-1}
 [[ "$COMFYUI_MANAGER" == 0 || "$COMFYUI_MANAGER" == 1 ]] || die 'COMFYUI_MANAGER must be 0 or 1.'
 COMFYUI_MANAGER_NETWORK_MODE=${COMFYUI_MANAGER_NETWORK_MODE:-personal_cloud}
@@ -227,9 +275,15 @@ if [[ "$action" == start ]]; then
     fi
     exec 9>"$INSTALL_ROOT/setup.lock"
     flock -n 9 || die 'An installation or ComfyUI process already holds the lock.'
-    # ComfyUI scans this directory before starting the server, even when empty.
-    # Create it on every start to repair installations made by older scripts.
-    mkdir -p "$INSTALL_ROOT/data/custom_nodes"
+    # ComfyUI scans custom_nodes before starting the server, even when empty.
+    # Create it (and the DATA_ROOT links) on every start to repair older installations.
+    link_data_dirs
+    db_args=()
+    # The assets database defaults to the user directory; keep SQLite off the
+    # network volume, whose FUSE layer handles its locks and small writes poorly.
+    if data_is_split && grep -q -- '--database-url' "$app/comfy/cli_args.py"; then
+        db_args=(--database-url "sqlite:///$INSTALL_ROOT/comfyui.db")
+    fi
     export LISTEN=${LISTEN:-0.0.0.0} PORT=${PORT:-8188}
     "$app/.venv/bin/python" - <<'PY'
 import os, socket
@@ -274,9 +328,9 @@ PY
     if [[ "$COMFYUI_CUSTOM_NODES" == 1 ]]; then install_custom_nodes "$app"; fi
     unset HF_TOKEN HUGGING_FACE_HUB_TOKEN
     cd "$app"
-    log "Starting ComfyUI on ${LISTEN}:${PORT}; output: $INSTALL_ROOT/data/output"
+    log "Starting ComfyUI on ${LISTEN}:${PORT}; output: $DATA_ROOT/output"
     exec "$app/.venv/bin/python" main.py --base-directory "$INSTALL_ROOT/data" \
-        --listen "$LISTEN" --port "$PORT" "${manager_args[@]}" "$@"
+        --listen "$LISTEN" --port "$PORT" "${manager_args[@]}" "${db_args[@]}" "$@"
 fi
 
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || die 'This installer targets Linux x86_64.'
@@ -319,17 +373,20 @@ apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl git python3 \
     python3-venv ffmpeg libgl1 libglib2.0-0 libgomp1 build-essential pkg-config util-linux
 
-mkdir -p "$INSTALL_ROOT"
+mkdir -p "$INSTALL_ROOT" "$DATA_ROOT"
 INSTALL_ROOT=$(realpath "$INSTALL_ROOT")
-[[ "$INSTALL_ROOT" != / ]] || die 'INSTALL_ROOT resolves to /.'
-export INSTALL_ROOT
+DATA_ROOT=$(realpath "$DATA_ROOT")
+[[ "$INSTALL_ROOT" != / && "$DATA_ROOT" != / ]] || die 'INSTALL_ROOT or DATA_ROOT resolves to /.'
+export INSTALL_ROOT DATA_ROOT
 exec 9>"$INSTALL_ROOT/setup.lock"
 flock -n 9 || die 'Stop the ComfyUI process started by this script before installing/updating.'
 # Git may detach background gc/maintenance; keep it from inheriting the lock fd,
 # or the lock would outlive this installer and block the following start.
 git() { command git "$@" 9>&-; }
-mkdir -p "$INSTALL_ROOT"/{releases,data/models,data/custom_nodes,data/user/default/workflows,logs}
-df -h "$INSTALL_ROOT"
+mkdir -p "$INSTALL_ROOT"/{releases,logs}
+link_data_dirs
+mkdir -p "$INSTALL_ROOT"/data/{models,user/default/workflows}
+df -h "$INSTALL_ROOT" "$DATA_ROOT"
 
 # Separate bootstrap tools from ComfyUI dependencies; use Python 3.12 even
 # when the container's system Python is older.
@@ -724,6 +781,6 @@ unset HF_TOKEN HUGGING_FACE_HUB_TOKEN
 printf '%s\n' "$release" > "$INSTALL_ROOT/active-release.tmp"
 mv "$INSTALL_ROOT/active-release.tmp" "$INSTALL_ROOT/active-release"
 log "Installation complete: $ref ($release)"
-printf 'Models/output/workflows: %s/data\n' "$INSTALL_ROOT"
-printf 'Start: INSTALL_ROOT=%q bash %q start\n' "$INSTALL_ROOT" "$0"
+printf 'Models/output/workflows: %s\n' "$DATA_ROOT"
+printf 'Start: INSTALL_ROOT=%q DATA_ROOT=%q bash %q start\n' "$INSTALL_ROOT" "$DATA_ROOT" "$0"
 printf 'Expose HTTP port 8188 in RunPod, then open its HTTP service.\n'
