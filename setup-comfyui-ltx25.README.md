@@ -309,7 +309,7 @@ SSH 公钥更建议添加到 RunPod Account 的 SSH Keys，而不是硬编码进
 
 - 独立 Python 3.12、按驱动选择 CUDA 版本的 PyTorch、ComfyUI 及其匹配依赖。
 - 从已安装模板包中提取官方 LTX-2.5 文生视频工作流，按 `LTX_VARIANT` 把主模型、文本编码器和 Prompt Enhancer 统一替换为 INT8（默认）或 BF16 版本；上游模板无论发布哪种精度都能处理。I2V/FLF2V 工作流另按 `LTX_FRAME_STRENGTH` 调整关键帧强度和缩放方法。
-- 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；默认安装 ComfyUI-Manager，但不预装任何 custom nodes，基础工作流使用 ComfyUI 原生节点。
+- 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；另外下载官方模板未使用、但社区工作流常用的 Conv VAE（`ltx-2.5-video-vae-conv-bf16.safetensors`，约 1.4 GiB，更快更轻）；默认安装 ComfyUI-Manager，但不预装任何 custom nodes，基础工作流使用 ComfyUI 原生节点。
 - 通过 Manager 安装的 custom nodes 位于 `$INSTALL_ROOT/data/custom_nodes`，可跨版本保留；但它们的 Python 依赖装在当前发布版的 `.venv` 里。`install` 升级到新的 ComfyUI 版本会新建 `.venv`，之后需要在 Manager 中修复或重装这些节点的依赖。
 - 检查 Hugging Face 授权、下载前剩余空间、模型文件大小、Python 依赖和实际 CUDA BF16 矩阵运算。
 - 记录源码 commit、已安装依赖版本和模型仓库 revision，便于复查。

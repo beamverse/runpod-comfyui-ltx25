@@ -529,6 +529,17 @@ for required in (
     if required not in names:
         raise SystemExit(f'Upstream template changed: expected {required}. Review before proceeding.')
 
+# Not referenced by the official templates, but many community workflows use
+# the lighter Conv VAE; fetch it from the same pinned repository revision.
+for repo, filename in (('Lightricks/LTX-2.5', 'vae/ltx-2.5-video-vae-conv-bf16.safetensors'),):
+    if PurePosixPath(filename).name in names:
+        continue
+    sha = next(s for (r, _), s in revisions.items() if r == repo)
+    info = get_hf_file_metadata(hf_hub_url(repo, filename, revision=sha), token=token)
+    if not info.size:
+        raise SystemExit(f'Missing model size for {filename}.')
+    plan.append((repo, filename, sha, info.size))
+
 model_dir = root / 'data/models'
 needed = 0
 for _, filename, _, size in plan:
