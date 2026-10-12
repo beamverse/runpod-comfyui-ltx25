@@ -22,7 +22,9 @@ usage() {
       '  LTX_TEXT_ENCODER  int8 or bf16 Gemma 4 text encoder; default: same as LTX_VARIANT' \
       '  LTX_FRAME_STRENGTH  I2V/FLF2V keyframe strength, 0-1; default 0.9 (upstream 0.7)' \
       '  COMFYUI_MANAGER   1 (default) installs ComfyUI-Manager and starts with --enable-manager; 0 disables' \
-  '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
+      '  COMFYUI_MANAGER_NETWORK_MODE  personal_cloud (default; lets Manager install nodes while' \
+      '                    listening on 0.0.0.0), public, private or offline' \
+      '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
       '  RUNPOD_START_BASE_SERVICES  Default: 1; run /start.sh in startup mode when present' \
       '  TORCH_CUDA        auto (default), cu130, cu128 or cu126 PyTorch build' \
       'Requires a GPU-enabled Linux x86_64 container and an R525 or newer host driver' \
@@ -91,6 +93,9 @@ INSTALL_ROOT=${INSTALL_ROOT:-/workspace/comfyui-ltx25}
 export INSTALL_ROOT
 COMFYUI_MANAGER=${COMFYUI_MANAGER:-1}
 [[ "$COMFYUI_MANAGER" == 0 || "$COMFYUI_MANAGER" == 1 ]] || die 'COMFYUI_MANAGER must be 0 or 1.'
+COMFYUI_MANAGER_NETWORK_MODE=${COMFYUI_MANAGER_NETWORK_MODE:-personal_cloud}
+[[ "$COMFYUI_MANAGER_NETWORK_MODE" =~ ^(personal_cloud|public|private|offline)$ ]] ||
+    die 'COMFYUI_MANAGER_NETWORK_MODE must be personal_cloud, public, private or offline.'
 
 # RunPod template boot mode. This keeps the startup command idempotent:
 # - start the image's built-in services (SSH/Jupyter) when /start.sh exists;
@@ -165,6 +170,22 @@ PY
             fi
         fi
         if manager_installed "$app"; then manager_args=(--enable-manager); fi
+        # With --listen 0.0.0.0, Manager's default network_mode (public) rejects
+        # every node install; personal_cloud is its documented mode for RunPod.
+        MANAGER_CONFIG="$INSTALL_ROOT/data/user/__manager/config.ini" \
+        NETWORK_MODE="$COMFYUI_MANAGER_NETWORK_MODE" "$app/.venv/bin/python" - <<'PY'
+import configparser, os
+path = os.environ['MANAGER_CONFIG']
+config = configparser.ConfigParser(strict=False)
+config.read(path)
+if not config.has_section('default'):
+    config.add_section('default')
+if config['default'].get('network_mode') != os.environ['NETWORK_MODE']:
+    config['default']['network_mode'] = os.environ['NETWORK_MODE']
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        config.write(f)
+PY
     fi
     unset HF_TOKEN HUGGING_FACE_HUB_TOKEN
     cd "$app"
@@ -367,8 +388,8 @@ log "Downloading LTX-2.5 ${LTX_VARIANT^^} models (existing Hub downloads are reu
 # All model files are Xet-backed; hf_xet already fetches chunks concurrently.
 # High-performance mode raises that concurrency for fast datacenter links.
 export HF_XET_HIGH_PERFORMANCE=${HF_XET_HIGH_PERFORMANCE:-1}
-"$INSTALL_ROOT/bootstrap/bin/python" - <<'PY'
-import json, os, shutil, sys
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")") "$INSTALL_ROOT/bootstrap/bin/python" - <<'PY'
+import json, os, shutil, sys, urllib.request
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
 from huggingface_hub import HfApi, get_hf_file_metadata, hf_hub_download, hf_hub_url
@@ -561,6 +582,24 @@ for index, (repo, filename, sha, size) in enumerate(plan, start=1):
         raise SystemExit(f'Incomplete download: {filename}')
     print(f'[{index}/{len(plan)}] Ready: {filename} (100%; downloaded or reused from cache)', flush=True)
     manifest.append(dict(repo=repo, filename=filename, revision=sha, bytes=size))
+
+# Community audio-driven I2V workflow kept in this repository. It needs custom
+# nodes (rgthree, mtb, KJNodes, Custom-Scripts; Manager's Install All) and only
+# models downloaded above, so it is added after the download plan and is optional.
+name = 'ltx25-audio-drive.json'
+local = Path(os.environ['SCRIPT_DIR']) / 'workflows' / name
+try:
+    if local.is_file():
+        workflow = json.loads(local.read_text())
+    else:
+        url = f'https://raw.githubusercontent.com/beamverse/runpod-comfyui-ltx25/main/workflows/{name}'
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            workflow = json.load(resp)
+    if not isinstance(workflow, dict) or not isinstance(workflow.get('nodes'), list):
+        raise ValueError('not a ComfyUI UI-format workflow')
+    workflows['audio-drive'] = replace(workflow)
+except Exception as exc:
+    print(f'WARNING: skipped the audio-drive workflow ({type(exc).__name__}: {exc}).', file=sys.stderr)
 
 # Preserve the user's original workflows when installing again.
 targets = []

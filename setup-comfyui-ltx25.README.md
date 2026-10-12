@@ -39,6 +39,7 @@ LTX_TEXT_ENCODER=                    # 留空跟随 LTX_VARIANT；可单独设 b
 LTX_FRAME_STRENGTH=0.9               # I2V/FLF2V 关键帧强度，见下文
 TORCH_CUDA=auto                      # 或 cu130 / cu128 / cu126，一般保持 auto
 COMFYUI_MANAGER=1                    # 默认安装并启用 ComfyUI-Manager；0 关闭
+COMFYUI_MANAGER_NETWORK_MODE=personal_cloud  # 允许在网页中安装节点；public 则禁止
 LISTEN=0.0.0.0
 PORT=8188
 HF_HOME=/workspace/.cache/huggingface
@@ -49,6 +50,8 @@ HF_TOKEN=<RunPod Secret>             # 首次安装需要
 ```
 
 `COMFYUI_MANAGER=1`（默认）时，`install` 按 ComfyUI 发布版自带的 `manager_requirements.txt` 安装固定版本的 ComfyUI-Manager，`start`/`startup` 自动加上 `--enable-manager`。由旧版脚本安装、尚未包含 Manager 的环境，会在下次 `start` 时就地补装，无需重新安装，也不需要 `HF_TOKEN`；补装失败只会打印警告，ComfyUI 照常启动，只是没有 Manager。没有 `manager_requirements.txt` 的旧 ComfyUI 版本不支持 `--enable-manager`，脚本会跳过。
+
+ComfyUI 监听 `0.0.0.0` 时，Manager 默认的 `network_mode = public` 会拒绝所有节点安装（点 Install All 无效）。因此 `start` 每次启动都会把 `$INSTALL_ROOT/data/user/__manager/config.ini` 的 `network_mode` 设为 `COMFYUI_MANAGER_NETWORK_MODE`（默认 `personal_cloud`，Manager 文档推荐用于 RunPod 等云环境）。注意：ComfyUI 没有登录保护，任何拿到 RunPod 代理地址的人都能通过 Manager 安装并运行 custom nodes 代码；不希望如此时设为 `public`，改用 SSH 手动安装节点。
 
 注意脚本读取的是 `COMFYUI_REF`，不是 `COMFYUI_VERSION`。如果希望固定 ComfyUI v0.39.0，请使用 `COMFYUI_REF=v0.39.0`。如果设置为 `latest`，每次手动执行 `install` 时会查询最新正式发布版。
 
@@ -155,9 +158,12 @@ curl -fsS http://127.0.0.1:8188/system_stats
 LTX-2.5-T2V-INT8.json     # 文生视频
 LTX-2.5-I2V-INT8.json     # 图生视频：在 Load Image 节点上传首帧图片
 LTX-2.5-FLF2V-INT8.json   # 首尾帧生视频：上传首帧和尾帧两张图片
+LTX-2.5-AUDIO-DRIVE-INT8.json  # 音频驱动图生视频：上传首帧图片和音频
 ```
 
-三个工作流来自同一个官方模板包，共用同一套模型，不需要额外下载。工作流文件位于：
+音频驱动工作流是社区工作流，保存在本仓库 `workflows/ltx25-audio-drive.json`。`install` 优先读取脚本同目录下的 `workflows/`，否则从 GitHub `main` 分支下载，并和官方工作流一样按 `LTX_VARIANT`/`LTX_TEXT_ENCODER` 替换模型文件名；下载失败只打印警告，不影响安装。它依赖 rgthree-comfy、comfy-mtb、ComfyUI-KJNodes 和 ComfyUI-Custom-Scripts 四个节点包：首次打开时在 Missing Node Packs 中点 Install All，重启 ComfyUI 后强制刷新页面（`Ctrl+F5`）。
+
+前三个工作流来自同一个官方模板包，与音频驱动工作流共用同一套模型，不需要额外下载。工作流文件位于：
 
 ```text
 /workspace/comfyui-ltx25/data/user/default/workflows/
