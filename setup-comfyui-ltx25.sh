@@ -479,16 +479,26 @@ def tune(workflow):
         if not isinstance(values, list):
             continue
         kind = node.get('type')
+        # Newer frontends also save widgets_values_named; keep it in step.
+        named = node.get('widgets_values_named')
+        named = named if isinstance(named, dict) else {}
         # [strength, bypass]; the second pass is already 1.0 and stays there.
         if kind == 'LTXVImgToVideoInplace' and isinstance(values[0], (int, float)) and values[0] < 1:
             values[0] = frame_strength
+            if 'strength' in named:
+                named['strength'] = frame_strength
             changed += 1
         # [frame_idx, strength]
         elif kind == 'LTXVAddGuide' and len(values) > 1 and isinstance(values[1], (int, float)):
             values[1] = frame_strength
+            if 'strength' in named:
+                named['strength'] = frame_strength
             changed += 1
         elif kind == 'ResizeImageMaskNode' and 'nearest-exact' in values:
             node['widgets_values'] = ['lanczos' if v == 'nearest-exact' else v for v in values]
+            for key, value in named.items():
+                if value == 'nearest-exact':
+                    named[key] = 'lanczos'
             changed += 1
     return changed
 for kind in ('i2v', 'flf2v'):
@@ -598,6 +608,9 @@ try:
     if not isinstance(workflow, dict) or not isinstance(workflow.get('nodes'), list):
         raise ValueError('not a ComfyUI UI-format workflow')
     workflows['audio-drive'] = replace(workflow)
+    # Same first-frame setup as I2V (strength 0.7 first pass), same face drift.
+    if not tune(workflows['audio-drive']):
+        print('WARNING: no keyframe settings found in the audio-drive workflow.', file=sys.stderr)
 except Exception as exc:
     print(f'WARNING: skipped the audio-drive workflow ({type(exc).__name__}: {exc}).', file=sys.stderr)
 
