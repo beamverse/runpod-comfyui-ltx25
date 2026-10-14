@@ -26,16 +26,20 @@ usage() {
       '  LTX_VARIANT       int8 (default, fits 32GB VRAM) or bf16 (full precision, upstream template)' \
       '  LTX_TEXT_ENCODER  int8 or bf16 Gemma 4 text encoder; default: same as LTX_VARIANT' \
       '  LTX_FRAME_STRENGTH  I2V/FLF2V keyframe strength, 0-1; default 0.9 (upstream 0.7)' \
+      '  LTX_INGREDIENTS   1 (default) adds the IC-LoRA Ingredients workflow and its LoRA' \
+      '                    (gated repository; skipped with a warning without access); 0 disables' \
       '  COMFYUI_MANAGER   1 (default) installs ComfyUI-Manager and starts with --enable-manager; 0 disables' \
       '  COMFYUI_MANAGER_NETWORK_MODE  personal_cloud (default; lets Manager install nodes while' \
       '                    listening on 0.0.0.0), public, private or offline' \
-      '  COMFYUI_CUSTOM_NODES  1 (default) installs the audio-drive workflow node packs on start; 0 disables' \
+      '  COMFYUI_CUSTOM_NODES  1 (default) installs the audio-drive and Ingredients workflow node packs' \
+      '                    on start; 0 disables' \
       '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
       '  RUNPOD_START_BASE_SERVICES  Default: 1; run /start.sh in startup mode when present' \
       '  TORCH_CUDA        auto (default), cu130, cu128 or cu126 PyTorch build' \
       'Requires a GPU-enabled Linux x86_64 container and an R525 or newer host driver' \
       '(R580+ installs CUDA 13.0 PyTorch; R570+ is required for RTX 50-series GPUs).' \
-      'Accept the Lightricks/LTX-2.5 license on Hugging Face before installation.'
+      'Accept the Lightricks/LTX-2.5 license on Hugging Face before installation, and the' \
+      'Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients license for the Ingredients workflow.'
 }
 
 # PyTorch CUDA build selection. CUDA 12.x wheels also run on R525+ drivers via
@@ -138,14 +142,16 @@ link_data_dirs() {
     done
 }
 
-# Custom node packs used by workflows/ltx25-audio-drive.json. They live in the
-# persistent data/custom_nodes, but their Python dependencies go into the
-# release's .venv, so each release records which packs it already has.
+# Custom node packs used by workflows/ltx25-audio-drive.json (the first four) and
+# the Ingredients workflow (ComfyUI-LTXVideo: IC-LoRA loader and guide nodes).
+# They live in the persistent data/custom_nodes, but their Python dependencies go
+# into the release's .venv, so each release records which packs it already has.
 CUSTOM_NODE_REPOS=(
     https://github.com/rgthree/rgthree-comfy
     https://github.com/melMass/comfy_mtb
     https://github.com/kijai/ComfyUI-KJNodes
     https://github.com/pythongosssss/ComfyUI-Custom-Scripts
+    https://github.com/Lightricks/ComfyUI-LTXVideo
 )
 node_key() { local n=${1,,}; printf '%s\n' "${n//_/-}"; }
 # Prints the pack's directory. Manager registry installs use the lowercase id
@@ -375,7 +381,9 @@ LTX_TEXT_ENCODER=${LTX_TEXT_ENCODER:-$LTX_VARIANT}
 LTX_FRAME_STRENGTH=${LTX_FRAME_STRENGTH:-0.9}
 [[ "$LTX_FRAME_STRENGTH" =~ ^(0(\.[0-9]+)?|1(\.0+)?)$ && ! "$LTX_FRAME_STRENGTH" =~ ^0(\.0*)?$ ]] ||
     die 'LTX_FRAME_STRENGTH must be a number greater than 0 and at most 1.'
-export LTX_VARIANT LTX_TEXT_ENCODER LTX_FRAME_STRENGTH
+LTX_INGREDIENTS=${LTX_INGREDIENTS:-1}
+[[ "$LTX_INGREDIENTS" == 0 || "$LTX_INGREDIENTS" == 1 ]] || die 'LTX_INGREDIENTS must be 0 or 1.'
+export LTX_VARIANT LTX_TEXT_ENCODER LTX_FRAME_STRENGTH LTX_INGREDIENTS
 log "Models: $LTX_VARIANT transformer, $LTX_TEXT_ENCODER text encoder"
 
 if [[ -z ${HF_TOKEN:-} ]]; then
@@ -431,6 +439,16 @@ except Exception as exc:
     raise SystemExit(f'Model access failed ({type(exc).__name__}). Accept the LTX-2.5 license '
                      'and give your token read access to this gated repository.') from None
 print('LTX-2.5 model access OK.')
+if os.environ['LTX_INGREDIENTS'] == '1':
+    # Optional: without access only the Ingredients workflow is skipped.
+    from huggingface_hub import HfApi
+    repo = 'Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients'
+    try:
+        HfApi(token=os.environ['HF_TOKEN']).auth_check(repo)
+        print('IC-LoRA Ingredients access OK.')
+    except Exception as exc:
+        print(f'WARNING: no access to {repo} ({type(exc).__name__}); the Ingredients workflow '
+              f'will be skipped. Accept its license at https://huggingface.co/{repo} and rerun.')
 PY
 
 ref=${COMFYUI_REF:-latest}
@@ -627,15 +645,15 @@ pairs = [
 replacements = {}
 for precision, bf16, int8 in pairs:
     replacements.update({int8: bf16} if precision == 'bf16' else {bf16: int8})
-def replace(value):
+def replace(value, mapping=replacements):
     if isinstance(value, str):
-        for old, new in replacements.items():
+        for old, new in mapping.items():
             value = value.replace(old, new)
         return value
     if isinstance(value, list):
-        return [replace(v) for v in value]
+        return [replace(v, mapping) for v in value]
     if isinstance(value, dict):
-        return {k: replace(v) for k, v in value.items()}
+        return {k: replace(v, mapping) for k, v in value.items()}
     return value
 
 # T2V is required; the image-to-video and first/last-frame templates ship in the
@@ -686,19 +704,20 @@ for kind in ('i2v', 'flf2v'):
         print(f'WARNING: no keyframe settings found in the {kind.upper()} template; left as upstream.',
               file=sys.stderr)
 
-models = {}
-def collect(value):
+def model_entries(value):
     if isinstance(value, dict):
         for model in value.get('models', []):
             if isinstance(model, dict) and 'url' in model:
-                models[model['url']] = model
+                yield model
         for item in value.values():
-            collect(item)
+            yield from model_entries(item)
     elif isinstance(value, list):
         for item in value:
-            collect(item)
+            yield from model_entries(item)
+models = {}
 for workflow in workflows.values():
-    collect(workflow)
+    for model in model_entries(workflow):
+        models[model['url']] = model
 if not models:
     raise SystemExit('The template has no model download metadata; refusing an incomplete setup.')
 
@@ -726,7 +745,7 @@ for model in models.values():
     info = get_hf_file_metadata(hf_hub_url(repo, filename, revision=sha), token=token)
     if not info.size:
         raise SystemExit(f'Missing model size for {filename}.')
-    plan.append((repo, filename, sha, info.size))
+    plan.append((repo, filename, sha, info.size, ''))
 
 names = {PurePosixPath(item[1]).name for item in plan}
 quant = {'int8': 'comfy-int8-convrot', 'bf16': 'bf16'}
@@ -749,12 +768,64 @@ for repo, filename in (('Lightricks/LTX-2.5', 'vae/ltx-2.5-video-vae-conv-bf16.s
     info = get_hf_file_metadata(hf_hub_url(repo, filename, revision=sha), token=token)
     if not info.size:
         raise SystemExit(f'Missing model size for {filename}.')
-    plan.append((repo, filename, sha, info.size))
+    plan.append((repo, filename, sha, info.size, ''))
+    names.add(PurePosixPath(filename).name)
+
+# Official IC-LoRA Ingredients workflow: keeps characters, props and locations
+# from one reference sheet. It needs the ComfyUI-LTXVideo nodes (installed by
+# start), the models above and a LoRA from its own gated repository, so it is
+# optional: any problem skips it with a warning.
+ingredients = None
+if os.environ['LTX_INGREDIENTS'] == '1':
+    name = 'LTX-2.5_ICLoRA_Ingredients_Single_Stage_Distilled.json'
+    repo = 'Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients'
+    try:
+        # Prefer the copy shipped with the installed node pack, which matches its nodes.
+        local = [d / 'example_workflows/2.5' / name for d in (root / 'data/custom_nodes').glob('*')
+                 if d.name.lower().replace('_', '-') == 'comfyui-ltxvideo']
+        if local and local[0].is_file():
+            workflow = json.loads(local[0].read_text())
+        else:
+            url = f'https://raw.githubusercontent.com/Lightricks/ComfyUI-LTXVideo/master/example_workflows/2.5/{name}'
+            with urllib.request.urlopen(url, timeout=60) as resp:
+                workflow = json.load(resp)
+        if not isinstance(workflow, dict) or not isinstance(workflow.get('nodes'), list):
+            raise ValueError('not a ComfyUI UI-format workflow')
+        workflow = replace(workflow)
+        info = api.model_info(repo)
+        loras = [s.rfilename for s in info.siblings
+                 if '/' not in s.rfilename and s.rfilename.endswith('.safetensors')]
+        if len(loras) != 1:
+            raise ValueError(f'expected one LoRA in {repo}, found {loras}')
+        lora = loras[0]
+        size = get_hf_file_metadata(hf_hub_url(repo, lora, revision=info.sha), token=token).size
+        if not size:
+            raise ValueError(f'missing size for {lora}')
+        # Upstream still points at the LTX-2.3 Ingredients LoRA; use the LTX-2.5 one.
+        old = set()
+        for model in model_entries(workflow):
+            if model.get('directory') == 'loras':
+                old.add(model['name'])
+                model.update(name=lora, url=f'https://huggingface.co/{repo}/resolve/main/{lora}')
+        if not old:
+            raise ValueError('no IC-LoRA found in the workflow')
+        workflow = replace(workflow, dict.fromkeys(old, lora))
+        missing = {m['name'] for m in model_entries(workflow)} - names - {lora}
+        if missing:
+            raise ValueError(f'needs models this setup does not download: {", ".join(sorted(missing))}')
+        plan.append((repo, lora, info.sha, size, 'loras'))
+        ingredients = workflow
+    except Exception as exc:
+        reason = (str(exc).splitlines() or [''])[0]
+        hint = (f' Accept its license at https://huggingface.co/{repo} and rerun.'
+                if type(exc).__name__ == 'GatedRepoError' else '')
+        print(f'WARNING: skipped the Ingredients workflow ({type(exc).__name__}: {reason}).{hint}',
+              file=sys.stderr)
 
 model_dir = root / 'data/models'
 needed = 0
-for _, filename, _, size in plan:
-    dest = model_dir / filename
+for _, filename, _, size, folder in plan:
+    dest = model_dir / folder / filename
     if not dest.exists() or dest.stat().st_size != size:
         needed += size
 free = shutil.disk_usage(model_dir).free
@@ -762,10 +833,10 @@ if free < needed + 10 * 1024**3:
     raise SystemExit(f'Insufficient disk: {free / 1024**3:.1f}GiB free, need approximately '
                      f'{needed / 1024**3 + 10:.1f}GiB including headroom.')
 manifest = []
-for index, (repo, filename, sha, size) in enumerate(plan, start=1):
+for index, (repo, filename, sha, size, folder) in enumerate(plan, start=1):
     print(f'[{index}/{len(plan)}] Downloading {filename} ({size / 1024**3:.2f}GiB)', flush=True)
     dest = Path(hf_hub_download(
-        repo, filename, revision=sha, token=token, local_dir=model_dir,
+        repo, filename, revision=sha, token=token, local_dir=model_dir / folder,
         tqdm_class=ModelDownloadProgress,
     ))
     if dest.stat().st_size != size:
@@ -793,6 +864,8 @@ try:
         print('WARNING: no keyframe settings found in the audio-drive workflow.', file=sys.stderr)
 except Exception as exc:
     print(f'WARNING: skipped the audio-drive workflow ({type(exc).__name__}: {exc}).', file=sys.stderr)
+if ingredients is not None:
+    workflows['ingredients'] = ingredients
 
 # Preserve the user's original workflows when installing again.
 targets = []
