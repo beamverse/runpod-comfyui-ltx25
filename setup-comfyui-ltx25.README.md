@@ -39,10 +39,12 @@ LTX_VARIANT=int8                     # 或 bf16，见下文
 LTX_TEXT_ENCODER=                    # 留空跟随 LTX_VARIANT；可单独设 bf16，见下文
 LTX_FRAME_STRENGTH=0.9               # I2V/FLF2V 关键帧强度，见下文
 LTX_INGREDIENTS=1                    # 默认添加 IC-LoRA Ingredients 工作流及其 LoRA；0 关闭，见下文
+LTX_UNION_CONTROL=1                  # 默认添加官方 Union Control（深度/边缘/姿态 V2V）工作流及其 LoRA；0 关闭，见下文
+LTX_ALLINONE=1                       # 默认添加 8 合 1 工作流及其 LoRA（约 4.9 GiB）；0 关闭，见下文
 TORCH_CUDA=auto                      # 或 cu130 / cu128 / cu126，一般保持 auto
 COMFYUI_MANAGER=1                    # 默认安装并启用 ComfyUI-Manager；0 关闭
 COMFYUI_MANAGER_NETWORK_MODE=personal_cloud  # 允许在网页中安装节点；public 则禁止
-COMFYUI_CUSTOM_NODES=1               # 默认在 start 时补装音频驱动和 Ingredients 工作流所需节点包；0 关闭
+COMFYUI_CUSTOM_NODES=1               # 默认在 start 时补装音频驱动、Ingredients、Union Control 和 8 合 1 工作流所需节点包；0 关闭
 LISTEN=0.0.0.0
 PORT=8188
 HF_HOME=/workspace/.cache/huggingface   # S3 网络卷上不要设置这两项（见下文）
@@ -163,11 +165,13 @@ LTX-2.5-I2V-INT8.json     # 图生视频：在 Load Image 节点上传首帧图�
 LTX-2.5-FLF2V-INT8.json   # 首尾帧生视频：上传首帧和尾帧两张图片
 LTX-2.5-AUDIO-DRIVE-INT8.json  # 音频驱动图生视频：上传首帧图片和音频
 LTX-2.5-INGREDIENTS-INT8.json  # IC-LoRA Ingredients：按一张设定图保持角色/道具/场景一致
+LTX-2.5-UNION-CONTROL-INT8.json  # IC-LoRA Union Control：按参考视频的深度/边缘/姿态生成新视频（动作迁移）
+LTX-2.5-ALLINONE-INT8.json     # 8 合 1：T2V/A2V/I2V/首尾帧/口型同步/V2V，用左上角开关选择模式
 ```
 
 音频驱动工作流是社区工作流，保存在本仓库 `workflows/ltx25-audio-drive.json`。`install` 优先读取脚本同目录下的 `workflows/`，否则从 GitHub `main` 分支下载，并和官方工作流一样按 `LTX_VARIANT`/`LTX_TEXT_ENCODER` 替换模型文件名；下载失败只打印警告，不影响安装。它依赖 rgthree-comfy、comfy-mtb、ComfyUI-KJNodes 和 ComfyUI-Custom-Scripts 四个节点包。`COMFYUI_CUSTOM_NODES=1`（默认）时，每次 `start`/`startup` 启动 ComfyUI 前都会检查 `$INSTALL_ROOT/data/custom_nodes`：缺失的包从 GitHub 浅克隆，并把它的 `requirements.txt` 装进当前发布版的 `.venv`（已装过依赖的包记录在发布版目录的 `custom-nodes-installed` 中，之后启动不再重复）。通过 Manager 安装的同名包（如 `comfyui-kjnodes`）视为已安装；在 Manager 中禁用的包不会被重新装回。下载或依赖安装失败只打印警告，ComfyUI 照常启动，此时可在 Missing Node Packs 中点 Install All。
 
-前三个工作流来自同一个官方模板包，与音频驱动工作流共用同一套模型，不需要额外下载。Ingredients 工作流另外需要一个 IC-LoRA 和 ComfyUI-LTXVideo 节点包，见“IC-LoRA Ingredients（参考设定图）”。工作流文件位于：
+前三个工作流来自同一个官方模板包，与音频驱动工作流共用同一套模型，不需要额外下载。Ingredients 工作流另外需要一个 IC-LoRA 和 ComfyUI-LTXVideo 节点包，见“IC-LoRA Ingredients（参考设定图）”；Union Control 工作流见“IC-LoRA Union Control（动作迁移）”；8 合 1 工作流另需一组 LoRA 和节点包，见“8 合 1 工作流”。工作流文件位于：
 
 ```text
 /workspace/comfyui-ltx25/data/user/default/workflows/
@@ -252,7 +256,7 @@ S3 卷上的注意事项：
 
 - 容器盘在 Pod 停止后清空，所以每次开机 `startup` 都会重新安装 ComfyUI 和 PyTorch（几分钟），**每次启动都需要 `HF_TOKEN`**。模型已在卷上，只做校验，不会重新下载。
 - 容器盘建议至少 40 GB。
-- 通过 Manager 安装的 custom nodes 在容器盘上，每次开机都会丢失；音频驱动和 Ingredients 工作流的节点包会自动补装。
+- 通过 Manager 安装的 custom nodes 在容器盘上，每次开机都会丢失；音频驱动、Ingredients、Union Control 和 8 合 1 工作流的节点包会自动补装。
 - 不要把 `HF_HOME`、`PIP_CACHE_DIR` 指向 S3 卷。
 - 下载模型时日志里的 `Could not set the permissions on the file ...incomplete` 是 huggingface_hub 的警告，文件本身已完整下载，可以忽略。
 - 如果宿主机驱动低于 R580，只能装 cu128 版 PyTorch，ComfyUI 会提示 `You need pytorch with cu130 or higher to use optimized CUDA operations`，comfy-kitchen 的 CUDA 加速被关闭（INT8 模型会走较慢的通用实现）。这是驱动限制，容器里无法解决；需要更快时选 R580+ 驱动的主机。
@@ -269,7 +273,7 @@ S3 卷上的注意事项：
 2. 日志出现 `Models are ready in ...` 后停止 CPU Pod。
 3. 开 GPU Pod 挂同一个卷，`startup` 安装代码，校验并复用卷上的模型，然后启动 ComfyUI。
 
-`COMFYUI_REF`、`LTX_VARIANT`、`LTX_TEXT_ENCODER`、`LTX_INGREDIENTS` 两边要设成一样，否则 GPU Pod 会按自己的设置再下载缺少的模型文件。也可以手动执行：
+`COMFYUI_REF`、`LTX_VARIANT`、`LTX_TEXT_ENCODER`、`LTX_INGREDIENTS`、`LTX_UNION_CONTROL`、`LTX_ALLINONE` 两边要设成一样，否则 GPU Pod 会按自己的设置再下载缺少的模型文件。也可以手动执行：
 
 ```bash
 HF_TOKEN=hf_xxx bash /workspace/setup-comfyui-ltx25.sh download
@@ -336,6 +340,39 @@ LTX_FRAME_STRENGTH=1.0 bash /workspace/setup-comfyui-ltx25.sh install
 - 该 LoRA 仓库是受限仓库。没有接受协议、下载失败，或上游工作流引用了本脚本不下载的模型时，只打印 `WARNING: skipped the Ingredients workflow`，其余安装照常完成；接受协议后重新执行 `install`（或 `download`）即可补上。`LTX_INGREDIENTS=0` 完全跳过。
 - INT8 主模型上叠加 LoRA 由 ComfyUI 的量化权重补丁支持，画质可能略低于 BF16。IC-LoRA 会把参考帧拼进注意力序列，显存和耗时都高于同尺寸文生视频；提高分辨率或时长前先小尺寸试跑。
 
+## IC-LoRA Union Control（动作迁移）
+
+`LTX-2.5-UNION-CONTROL-*.json` 基于官方 ComfyUI-LTXVideo 的 `example_workflows/2.5/LTX-2.5_ICLoRA_Union_Control_Distilled.json`：从参考视频中提取深度（默认）、Canny 边缘或 DWPose 姿态，作为 IC-LoRA guide 生成新视频。动作复杂的场景（打斗、舞蹈、追逐）有参考素材时用它，比只用文字描述稳定得多。
+
+- 用法：在 Load Video 上传参考视频，在 Load Image 上传首帧（默认作为开头画面，强度 1）。不想固定首帧时，把 Preprocess 和上采样两个子图上的 `bypass` 都打开。切换深度/边缘/姿态在 Preprocess 子图内。提示词描述想要的画面和风格，动作交给参考视频。
+- 两阶段：第一阶段短边 544、8 步，然后 2× latent 上采样再精修 3 步。
+- 官方工作流本身就在 LTX-2.5 底模上使用 LTX-2.3 的 `ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors`（公开仓库 `Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control`，约 0.6 GiB），脚本照此下载到 `models/loras/`；8 合 1 工作流的 08 模式共用这个文件，不会重复下载。
+- 需要的节点包：ComfyUI-LTXVideo、comfyui_controlnet_aux（Canny、DWPose）、ComfyUI-Video-Depth-Anything（深度），`COMFYUI_CUSTOM_NODES=1` 时由 `start` 自动安装。深度模型 `video_depth_anything_vits.pth` 和 DWPose 模型在首次运行时由节点自行下载到 `models/` 下。
+- 读取顺序和 Ingredients 一样：优先使用已安装节点包自带的副本，没有时从 GitHub `master` 下载。任何一步失败只打印 `WARNING: skipped the Union Control workflow`，其余安装照常完成。`LTX_UNION_CONTROL=0` 完全跳过。
+
+## 8 合 1 工作流
+
+`LTX-2.5-ALLINONE-*.json` 来自协作者，保存在本仓库 `workflows/ltx25-8in1-allinone.json`（读取顺序与音频驱动工作流相同）。它把 8 种模式放在一张图里，用 Fast Groups Bypasser 切换：01 文生视频、02 音频转视频、03 图生视频、04 首尾帧、05 口型同步、06 首尾帧口型同步、07 首/中/尾帧、08 IC-LoRA 视频风格转换。默认分辨率为 2.0 MP（1920×1088），比基础工作流（0.9 MP）慢得多、显存占用也更高，首次试跑先把 Setting 中的 megapixels 调低。
+
+脚本额外下载（约 4.9 GiB，都是公开仓库，不需要接受协议）：
+
+| 工作流中的文件名 | 实际下载 | 用途 |
+|---|---|---|
+| `LTX2.3_Crisp_Enhance.safetensors` | `vrgamedevgirl84/LTX_2.3_Crisp_Enhance_Style_LoRa` | 清晰度 |
+| `LTX2.3_VBVR_Reasoning_I2V_V2.safetensors` | `LiconStudio/Ltx2.3-VBVR-lora-I2V` 的 `Ltx2.3-Licon-VBVR-I2V-390K-R32.safetensors` | 运动/逻辑连贯性 |
+| `LTX-2.3-Licon-MSR-V2_0725.safetensors` | `LiconStudio/LTX-2.3-Multiple-Subject-Reference` 的 `LTX-2.3-Licon-MSR-V2.safetensors` | 多主体参考 |
+| `ltx-2-19b-ic-lora-detailer.safetensors` | `Lightricks/LTX-2-19b-IC-LoRA-Detailer` | 第二阶段细节 |
+| `ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors` | `Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control` | 08 模式控制 |
+| `taeltx2_3.safetensors` | `Kijai/LTX2.3_comfy` 的 `vae/taeltx2_3.safetensors` | 采样预览 |
+
+- 协作者本地改过名的文件（带 `_0725`、`_0825` 后缀或自定义名称）在写入工作流时改回上游文件名；主模型和文本编码器另按 `LTX_VARIANT`/`LTX_TEXT_ENCODER` 替换。VBVR 的 “V2” 无法从文件名确认，脚本取最新的 390K 版本。
+- 不按 `LTX_FRAME_STRENGTH` 调整，保留协作者设定的关键帧强度。
+- 节点里残留的旧模型下载信息（LTX-2.3 distilled LoRA、LTX-2 放大器）会被删除，避免 ComfyUI 提示下载无关模型。
+- 低显存用的 GGUF 加载器（`LTX-2.5-Distilled-Q5_K_M_0824.gguf`）不下载；32 GB 显存用默认的 Diffusion Model Loader 即可。
+- 需要的节点包：rgthree-comfy、ComfyUI-KJNodes、ComfyUI-Custom-Scripts、ComfyUI-LTXVideo、ComfyUI-VideoHelperSuite、ComfyUI-Easy-Use、ComfyMath、ComfyUI-mxToolkit、qq-nodes-comfyui、ComfyUI-GGUF、ComfyUI-MediaMixer、comfyui_controlnet_aux，`COMFYUI_CUSTOM_NODES=1` 时由 `start` 自动安装。08 模式的 DWPose/Depth/Canny 预处理模型在首次运行时由 controlnet_aux 自行下载。
+- 工作流里的示例图片/音频/视频是协作者本地文件，不随工作流提供，使用前在对应的 Load 节点上传自己的素材。
+- 任何一步失败只打印 `WARNING: skipped the all-in-one workflow`，其余安装照常完成。`LTX_ALLINONE=0` 完全跳过。
+
 ## 自定义目录、端口和 ComfyUI 参数
 
 自定义目录：
@@ -376,8 +413,8 @@ SSH 公钥更建议添加到 RunPod Account 的 SSH Keys，而不是硬编码进
 
 - 独立 Python 3.12、按驱动选择 CUDA 版本的 PyTorch、ComfyUI 及其匹配依赖。
 - 从已安装模板包中提取官方 LTX-2.5 文生视频工作流，按 `LTX_VARIANT` 把主模型、文本编码器和 Prompt Enhancer 统一替换为 INT8（默认）或 BF16 版本；上游模板无论发布哪种精度都能处理。I2V/FLF2V 工作流另按 `LTX_FRAME_STRENGTH` 调整关键帧强度和缩放方法。
-- 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；另外下载官方模板未使用、但社区工作流常用的 Conv VAE（`ltx-2.5-video-vae-conv-bf16.safetensors`，约 1.4 GiB，更快更轻）；默认安装 ComfyUI-Manager；基础工作流只用 ComfyUI 原生节点，`start` 另外补装音频驱动工作流需要的四个节点包和 Ingredients 工作流需要的 ComfyUI-LTXVideo（见上文）；`LTX_INGREDIENTS=1` 时另下载 Ingredients IC-LoRA 到 `models/loras`。
-- 通过 Manager 安装的 custom nodes 位于 `$INSTALL_ROOT/data/custom_nodes`，可跨版本保留；但它们的 Python 依赖装在当前发布版的 `.venv` 里。`install` 升级到新的 ComfyUI 版本会新建 `.venv`，之后需要在 Manager 中修复或重装这些节点的依赖（音频驱动和 Ingredients 工作流的节点包除外，`start` 会自动为新 `.venv` 补装依赖）。
+- 按工作流元数据下载主模型、文本编码器、标准视频 VAE、音频 VAE、空间放大器和 Prompt Enhancer；另外下载官方模板未使用、但社区工作流常用的 Conv VAE（`ltx-2.5-video-vae-conv-bf16.safetensors`，约 1.4 GiB，更快更轻）；默认安装 ComfyUI-Manager；基础工作流只用 ComfyUI 原生节点，`start` 另外补装音频驱动工作流需要的四个节点包和 Ingredients 工作流需要的 ComfyUI-LTXVideo（见上文）；`LTX_INGREDIENTS=1` 时另下载 Ingredients IC-LoRA 到 `models/loras`；`LTX_UNION_CONTROL=1` 时另下载 Union Control IC-LoRA；`LTX_ALLINONE=1` 时另下载 8 合 1 工作流的 LoRA 和预览 VAE。
+- 通过 Manager 安装的 custom nodes 位于 `$INSTALL_ROOT/data/custom_nodes`，可跨版本保留；但它们的 Python 依赖装在当前发布版的 `.venv` 里。`install` 升级到新的 ComfyUI 版本会新建 `.venv`，之后需要在 Manager 中修复或重装这些节点的依赖（音频驱动、Ingredients、Union Control 和 8 合 1 工作流的节点包除外，`start` 会自动为新 `.venv` 补装依赖）。
 - 检查 Hugging Face 授权、下载前剩余空间、模型文件大小、Python 依赖和实际 CUDA BF16 矩阵运算。
 - 记录源码 commit、已安装依赖版本和模型仓库 revision，便于复查。
 - 当前模型组合会占用大量空间；Python、PyTorch、缓存、旧源码环境和输出也会持续占用持久盘，脚本不会自动清理旧版本。

@@ -28,10 +28,14 @@ usage() {
       '  LTX_FRAME_STRENGTH  I2V/FLF2V keyframe strength, 0-1; default 0.9 (upstream 0.7)' \
       '  LTX_INGREDIENTS   1 (default) adds the IC-LoRA Ingredients workflow and its LoRA' \
       '                    (gated repository; skipped with a warning without access); 0 disables' \
+      '  LTX_UNION_CONTROL  1 (default) adds the official IC-LoRA Union Control (depth/canny/pose' \
+      '                    video-to-video) workflow and its LoRA; 0 disables' \
+      '  LTX_ALLINONE      1 (default) adds the 8-in-1 all-in-one workflow, its LoRA stack and' \
+      '                    preview VAE (~4.9GiB); 0 disables' \
       '  COMFYUI_MANAGER   1 (default) installs ComfyUI-Manager and starts with --enable-manager; 0 disables' \
       '  COMFYUI_MANAGER_NETWORK_MODE  personal_cloud (default; lets Manager install nodes while' \
       '                    listening on 0.0.0.0), public, private or offline' \
-      '  COMFYUI_CUSTOM_NODES  1 (default) installs the audio-drive and Ingredients workflow node packs' \
+      '  COMFYUI_CUSTOM_NODES  1 (default) installs the audio-drive, Ingredients, Union Control and all-in-one workflow node packs' \
       '                    on start; 0 disables' \
       '  LISTEN / PORT     Default: 0.0.0.0 / 8188 (start/startup)' \
       '  RUNPOD_START_BASE_SERVICES  Default: 1; run /start.sh in startup mode when present' \
@@ -142,8 +146,11 @@ link_data_dirs() {
     done
 }
 
-# Custom node packs used by workflows/ltx25-audio-drive.json (the first four) and
-# the Ingredients workflow (ComfyUI-LTXVideo: IC-LoRA loader and guide nodes).
+# Custom node packs used by workflows/ltx25-audio-drive.json (the first four),
+# the Ingredients workflow (ComfyUI-LTXVideo: IC-LoRA loader and guide nodes),
+# the Union Control workflow (ComfyUI-LTXVideo, controlnet_aux, Video-Depth-Anything)
+# and workflows/ltx25-8in1-allinone.json (GGUF and MediaMixer only serve its
+# bypassed low-VRAM/A2V paths).
 # They live in the persistent data/custom_nodes, but their Python dependencies go
 # into the release's .venv, so each release records which packs it already has.
 CUSTOM_NODE_REPOS=(
@@ -152,6 +159,15 @@ CUSTOM_NODE_REPOS=(
     https://github.com/kijai/ComfyUI-KJNodes
     https://github.com/pythongosssss/ComfyUI-Custom-Scripts
     https://github.com/Lightricks/ComfyUI-LTXVideo
+    https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
+    https://github.com/yolain/ComfyUI-Easy-Use
+    https://github.com/evanspearman/ComfyMath
+    https://github.com/Smirnov75/ComfyUI-mxToolkit
+    https://github.com/kenjiqq/qq-nodes-comfyui
+    https://github.com/city96/ComfyUI-GGUF
+    https://github.com/DoctorDiffusion/ComfyUI-MediaMixer
+    https://github.com/Fannovel16/comfyui_controlnet_aux
+    https://github.com/yuvraj108c/ComfyUI-Video-Depth-Anything
 )
 node_key() { local n=${1,,}; printf '%s\n' "${n//_/-}"; }
 # Prints the pack's directory. Manager registry installs use the lowercase id
@@ -383,7 +399,11 @@ LTX_FRAME_STRENGTH=${LTX_FRAME_STRENGTH:-0.9}
     die 'LTX_FRAME_STRENGTH must be a number greater than 0 and at most 1.'
 LTX_INGREDIENTS=${LTX_INGREDIENTS:-1}
 [[ "$LTX_INGREDIENTS" == 0 || "$LTX_INGREDIENTS" == 1 ]] || die 'LTX_INGREDIENTS must be 0 or 1.'
-export LTX_VARIANT LTX_TEXT_ENCODER LTX_FRAME_STRENGTH LTX_INGREDIENTS
+LTX_UNION_CONTROL=${LTX_UNION_CONTROL:-1}
+[[ "$LTX_UNION_CONTROL" == 0 || "$LTX_UNION_CONTROL" == 1 ]] || die 'LTX_UNION_CONTROL must be 0 or 1.'
+LTX_ALLINONE=${LTX_ALLINONE:-1}
+[[ "$LTX_ALLINONE" == 0 || "$LTX_ALLINONE" == 1 ]] || die 'LTX_ALLINONE must be 0 or 1.'
+export LTX_VARIANT LTX_TEXT_ENCODER LTX_FRAME_STRENGTH LTX_INGREDIENTS LTX_UNION_CONTROL LTX_ALLINONE
 log "Models: $LTX_VARIANT transformer, $LTX_TEXT_ENCODER text encoder"
 
 if [[ -z ${HF_TOKEN:-} ]]; then
@@ -775,23 +795,26 @@ for repo, filename in (('Lightricks/LTX-2.5', 'vae/ltx-2.5-video-vae-conv-bf16.s
 # from one reference sheet. It needs the ComfyUI-LTXVideo nodes (installed by
 # start), the models above and a LoRA from its own gated repository, so it is
 # optional: any problem skips it with a warning.
+def ltxvideo_workflow(name):
+    # Prefer the copy shipped with the installed node pack, which matches its nodes.
+    local = [d / 'example_workflows/2.5' / name for d in (root / 'data/custom_nodes').glob('*')
+             if d.name.lower().replace('_', '-') == 'comfyui-ltxvideo']
+    if local and local[0].is_file():
+        workflow = json.loads(local[0].read_text())
+    else:
+        url = f'https://raw.githubusercontent.com/Lightricks/ComfyUI-LTXVideo/master/example_workflows/2.5/{name}'
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            workflow = json.load(resp)
+    if not isinstance(workflow, dict) or not isinstance(workflow.get('nodes'), list):
+        raise ValueError('not a ComfyUI UI-format workflow')
+    return replace(workflow)
+
 ingredients = None
 if os.environ['LTX_INGREDIENTS'] == '1':
     name = 'LTX-2.5_ICLoRA_Ingredients_Single_Stage_Distilled.json'
     repo = 'Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients'
     try:
-        # Prefer the copy shipped with the installed node pack, which matches its nodes.
-        local = [d / 'example_workflows/2.5' / name for d in (root / 'data/custom_nodes').glob('*')
-                 if d.name.lower().replace('_', '-') == 'comfyui-ltxvideo']
-        if local and local[0].is_file():
-            workflow = json.loads(local[0].read_text())
-        else:
-            url = f'https://raw.githubusercontent.com/Lightricks/ComfyUI-LTXVideo/master/example_workflows/2.5/{name}'
-            with urllib.request.urlopen(url, timeout=60) as resp:
-                workflow = json.load(resp)
-        if not isinstance(workflow, dict) or not isinstance(workflow.get('nodes'), list):
-            raise ValueError('not a ComfyUI UI-format workflow')
-        workflow = replace(workflow)
+        workflow = ltxvideo_workflow(name)
         info = api.model_info(repo)
         loras = [s.rfilename for s in info.siblings
                  if '/' not in s.rfilename and s.rfilename.endswith('.safetensors')]
@@ -820,6 +843,106 @@ if os.environ['LTX_INGREDIENTS'] == '1':
         hint = (f' Accept its license at https://huggingface.co/{repo} and rerun.'
                 if type(exc).__name__ == 'GatedRepoError' else '')
         print(f'WARNING: skipped the Ingredients workflow ({type(exc).__name__}: {reason}).{hint}',
+              file=sys.stderr)
+
+# Official IC-LoRA Union Control workflow: video-to-video that follows the depth,
+# canny or pose of a reference clip, i.e. motion transfer. Its IC-LoRA is public;
+# the annotators come from comfyui_controlnet_aux and ComfyUI-Video-Depth-Anything
+# (installed by start), which fetch their own small models on first use.
+union = None
+if os.environ['LTX_UNION_CONTROL'] == '1':
+    repo = 'Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control'
+    try:
+        workflow = ltxvideo_workflow('LTX-2.5_ICLoRA_Union_Control_Distilled.json')
+        loras = []
+        for model in model_entries(workflow):
+            if model['name'] in names or any(item[1] == model['name'] for item in loras):
+                continue
+            if model.get('directory') != 'loras' or \
+               model['url'] != f'https://huggingface.co/{repo}/resolve/main/{model["name"]}':
+                raise ValueError(f'needs a model this setup does not download: {model["name"]}')
+            sha = api.model_info(repo).sha
+            size = get_hf_file_metadata(hf_hub_url(repo, model['name'], revision=sha), token=token).size
+            if not size:
+                raise ValueError(f'missing size for {model["name"]}')
+            loras.append((repo, model['name'], sha, size, 'loras'))
+        if not loras:
+            raise ValueError('no IC-LoRA found in the workflow')
+        plan.extend(loras)
+        names.update(item[1] for item in loras)
+        union = workflow
+    except Exception as exc:
+        reason = (str(exc).splitlines() or [''])[0]
+        print(f'WARNING: skipped the Union Control workflow ({type(exc).__name__}: {reason}).',
+              file=sys.stderr)
+
+# Community 8-in-1 workflow kept in this repository (T2V, A2V, I2V, FLF2V, lipsync,
+# first-middle-last frame, IC-LoRA V2V). Besides the models above it loads a LoRA
+# stack and a tiny preview VAE, saved under the collaborator's own file names.
+# Optional like Ingredients: any problem skips it with a warning.
+allinone = None
+if os.environ['LTX_ALLINONE'] == '1':
+    name = 'ltx25-8in1-allinone.json'
+    # (repository, file, models/ subfolder, name the workflow uses)
+    extras = [
+        ('vrgamedevgirl84/LTX_2.3_Crisp_Enhance_Style_LoRa', 'LTX2.3_Crisp_Enhance.safetensors',
+         'loras', 'LTX2.3_Crisp_Enhance.safetensors'),
+        # The workflow's "V2"; 390K is the newest (VBVR-reinforce) checkpoint.
+        ('LiconStudio/Ltx2.3-VBVR-lora-I2V', 'Ltx2.3-Licon-VBVR-I2V-390K-R32.safetensors',
+         'loras', 'LTX2.3_VBVR_Reasoning_I2V_V2.safetensors'),
+        ('LiconStudio/LTX-2.3-Multiple-Subject-Reference', 'LTX-2.3-Licon-MSR-V2.safetensors',
+         'loras', 'LTX-2.3-Licon-MSR-V2_0725.safetensors'),
+        ('Lightricks/LTX-2-19b-IC-LoRA-Detailer', 'ltx-2-19b-ic-lora-detailer.safetensors',
+         'loras', 'ltx-2-19b-ic-lora-detailer.safetensors'),
+        ('Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control', 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors',
+         'loras', 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors'),
+        ('Kijai/LTX2.3_comfy', 'vae/taeltx2_3.safetensors', '', 'taeltx2_3.safetensors'),
+    ]
+    renames = {used: PurePosixPath(filename).name for _, filename, _, used in extras}
+    # A dated local copy of the upstream transformer; replace() then applies LTX_VARIANT.
+    renames['ltx-2.5-22b-distilled-transformer-comfy-int8-convrot_0825.safetensors'] = \
+        'ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors'
+    try:
+        local = Path(os.environ['SCRIPT_DIR']) / 'workflows' / name
+        if local.is_file():
+            workflow = json.loads(local.read_text())
+        else:
+            url = f'https://raw.githubusercontent.com/beamverse/runpod-comfyui-ltx25/main/workflows/{name}'
+            with urllib.request.urlopen(url, timeout=60) as resp:
+                workflow = json.load(resp)
+        if not isinstance(workflow, dict) or not isinstance(workflow.get('nodes'), list):
+            raise ValueError('not a ComfyUI UI-format workflow')
+        workflow = replace(replace(workflow, renames))
+        for node in workflow['nodes']:
+            # Stale download metadata (LTX-2.3 distilled LoRA, LTX-2 upscaler) that
+            # no longer matches the widgets; this setup downloads the real models.
+            if isinstance(node.get('properties'), dict):
+                node['properties'].pop('models', None)
+        extra_plan = []
+        for repo, filename, folder, _ in extras:
+            sha = api.model_info(repo).sha
+            size = get_hf_file_metadata(hf_hub_url(repo, filename, revision=sha), token=token).size
+            if not size:
+                raise ValueError(f'missing size for {filename}')
+            extra_plan.append((repo, filename, sha, size, folder))
+        def model_files(value):
+            if isinstance(value, str):
+                if value.endswith(('.safetensors', '.gguf')):
+                    yield value
+            elif isinstance(value, (list, dict)):
+                for item in (value.values() if isinstance(value, dict) else value):
+                    yield from model_files(item)
+        provided = names | {PurePosixPath(item[1]).name for item in extra_plan}
+        missing = {f for node in workflow['nodes'] for f in model_files(node.get('widgets_values'))
+                   if not f.endswith('.gguf')} - provided
+        if missing:
+            raise ValueError(f'needs models this setup does not download: {", ".join(sorted(missing))}')
+        plan.extend(item for item in extra_plan if PurePosixPath(item[1]).name not in names)
+        names |= provided
+        allinone = workflow
+    except Exception as exc:
+        reason = (str(exc).splitlines() or [''])[0]
+        print(f'WARNING: skipped the all-in-one workflow ({type(exc).__name__}: {reason}).',
               file=sys.stderr)
 
 model_dir = root / 'data/models'
@@ -866,6 +989,11 @@ except Exception as exc:
     print(f'WARNING: skipped the audio-drive workflow ({type(exc).__name__}: {exc}).', file=sys.stderr)
 if ingredients is not None:
     workflows['ingredients'] = ingredients
+if union is not None:
+    workflows['union-control'] = union
+# Not tuned: its keyframe strengths (0.7/0.8) are part of the collaborator's look.
+if allinone is not None:
+    workflows['allinone'] = allinone
 
 # Preserve the user's original workflows when installing again.
 targets = []
