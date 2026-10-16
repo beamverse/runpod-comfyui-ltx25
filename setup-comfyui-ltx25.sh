@@ -153,8 +153,10 @@ link_data_dirs() {
 # bypassed low-VRAM/A2V paths).
 # They live in the persistent data/custom_nodes, but their Python dependencies go
 # into the release's .venv, so each release records which packs it already has.
+# A #branch suffix pins the branch to clone instead of the repository default.
 CUSTOM_NODE_REPOS=(
-    https://github.com/rgthree/rgthree-comfy
+    # Its default branch (dev) is a 2023 snapshot that fails to import on current ComfyUI.
+    https://github.com/rgthree/rgthree-comfy#main
     https://github.com/melMass/comfy_mtb
     https://github.com/kijai/ComfyUI-KJNodes
     https://github.com/pythongosssss/ComfyUI-Custom-Scripts
@@ -188,10 +190,11 @@ custom_node_dir() {
 }
 install_custom_nodes() {
     local app=$1 nodes="$INSTALL_ROOT/data/custom_nodes" marker="$1/custom-nodes-installed"
-    local uv="$INSTALL_ROOT/bootstrap/bin/uv" url name dir rc changed= constraints=()
+    local uv="$INSTALL_ROOT/bootstrap/bin/uv" entry url branch name dir rc refresh changed= constraints=()
     [[ -f "$app/torch-constraints.txt" ]] && constraints=(-c "$app/torch-constraints.txt")
-    for url in "${CUSTOM_NODE_REPOS[@]}"; do
-        name=${url##*/}
+    for entry in "${CUSTOM_NODE_REPOS[@]}"; do
+        url=${entry%%#*} branch=${entry#"${entry%%#*}"} branch=${branch#\#}
+        name=${url##*/} refresh=
         rc=0; dir=$(custom_node_dir "$nodes" "$name") || rc=$?
         (( rc == 2 )) && continue
         if (( rc == 1 )); then
@@ -199,14 +202,24 @@ install_custom_nodes() {
             dir="$nodes/$name"
             rm -rf "$nodes/.$name.tmp"
             # Close the lock fd: git may leave background maintenance running.
-            if ! command git clone --depth 1 "$url" "$nodes/.$name.tmp" 9>&- ||
+            if ! command git clone --depth 1 ${branch:+--branch "$branch"} "$url" "$nodes/.$name.tmp" 9>&- ||
                ! mv "$nodes/.$name.tmp" "$dir"; then
                 rm -rf "$nodes/.$name.tmp"
                 printf 'WARNING: could not download %s; install it from Manager instead.\n' "$name" >&2
                 continue
             fi
+        elif [[ -n $branch && -d "$dir/.git" &&
+                $(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null) != "$branch" ]]; then
+            # Earlier versions cloned the default branch; move those clones over.
+            log "Switching custom node pack $name to its $branch branch"
+            if command git -C "$dir" fetch --depth 1 origin "$branch" 9>&- &&
+               command git -C "$dir" checkout -B "$branch" FETCH_HEAD 9>&-; then
+                refresh=1
+            else
+                printf 'WARNING: could not switch %s to %s; update it from Manager instead.\n' "$name" "$branch" >&2
+            fi
         fi
-        grep -qxF "$name" "$marker" 2>/dev/null && continue
+        [[ -z $refresh ]] && grep -qxF "$name" "$marker" 2>/dev/null && continue
         if [[ -s "$dir/requirements.txt" ]]; then
             log "Installing Python dependencies of $name"
             if ! UV_CACHE_DIR="$INSTALL_ROOT/cache/uv" "$uv" pip install --python "$app/.venv/bin/python" \
