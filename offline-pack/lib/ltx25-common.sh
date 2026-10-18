@@ -204,14 +204,17 @@ r2_check_write() {
     local probe body out
     probe="$R2_BASE/.check/builder-${HOSTNAME//[^A-Za-z0-9-]/}-$$.txt"
     body="ltx25 R2 check $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    local quick=(--retries 1 --low-level-retries 1)
-    out=$(printf '%s\n' "$body" | rclone rcat "${quick[@]}" "$probe" 2>&1) ||
-        die "R2 write test failed. $(r2_explain "$out")"$'\n'"$out"
-    out=$(rclone cat "${quick[@]}" "$probe" 2>&1) ||
-        die "R2 read test failed. $(r2_explain "$out")"$'\n'"$out"
+    local quick=(--retries 1 --low-level-retries 1) err
+    # stderr apart from the object content: rclone always notes the missing config file there.
+    err=$(mktemp)
+    printf '%s\n' "$body" | rclone rcat "${quick[@]}" "$probe" 2>"$err" ||
+        die "R2 write test failed. $(r2_explain "$(<"$err")")"$'\n'"$(<"$err")"
+    out=$(rclone cat "${quick[@]}" "$probe" 2>"$err") ||
+        die "R2 read test failed. $(r2_explain "$(<"$err")")"$'\n'"$(<"$err")"
     [[ "$out" == "$body" ]] || die 'R2 returned different content for the test object.'
-    out=$(rclone deletefile "${quick[@]}" "$probe" 2>&1) ||
-        die "R2 delete test failed. $(r2_explain "$out")"$'\n'"$out"
+    rclone deletefile "${quick[@]}" "$probe" 2>"$err" ||
+        die "R2 delete test failed. $(r2_explain "$(<"$err")")"$'\n'"$(<"$err")"
+    rm -f "$err"
     log "R2 OK: read/write access to $R2_BUCKET/$R2_PREFIX"
 }
 
