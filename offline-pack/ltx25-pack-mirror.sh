@@ -47,9 +47,15 @@ export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
     RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
 base="r2:$R2_BUCKET/$R2_PREFIX"
 
+# Git Bash on Windows has no flock, and its ln -s copies the whole directory.
+windows=
+case $(uname -s) in MINGW*|MSYS*|CYGWIN*) windows=1 ;; esac
+
 mkdir -p "$dest"
-exec 9>"$dest/.mirror.lock"
-flock -n 9 || die "Another mirror run is using $dest."
+if command -v flock >/dev/null; then
+    exec 9>"$dest/.mirror.lock"
+    flock -n 9 || die "Another mirror run is using $dest."
+fi
 
 latest=$(rclone cat "$base/latest.json") || die "Cannot read $R2_PREFIX/latest.json from R2."
 version=${2:-$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' <<< "$latest" | head -n 1)}
@@ -69,10 +75,15 @@ else
     rm -rf "${dest:?}/${version:?}"
     mv "$dest/$version.partial" "$dest/$version"
 fi
-# Swap the pointer atomically so GPU servers never copy a half-updated "current".
-ln -sfn "$version" "$dest/.current.tmp"
-mv -T "$dest/.current.tmp" "$dest/current"
 if [[ -z ${2:-} ]]; then printf '%s\n' "$latest" > "$dest/latest.json.tmp" && mv "$dest/latest.json.tmp" "$dest/latest.json"; fi
-log "Mirror ready: $dest/current -> $version"
+# Swap the pointer atomically so GPU servers never copy a half-updated "current".
+# Windows and exFAT/FAT drives cannot hold symlinks; the version directory is used directly.
+if [[ -z $windows ]] && ln -sfn "$version" "$dest/.current.tmp" 2>/dev/null; then
+    mv -T "$dest/.current.tmp" "$dest/current"
+    log "Mirror ready: $dest/$version (current -> $version)"
+else
+    rm -rf "$dest/.current.tmp"
+    log "Mirror ready: $dest/$version"
+fi
 printf 'Older versions are kept; remove them from %s when no server needs them.\n' "$dest"
-printf 'On a GPU server: rsync -a --delete <fileserver>:%s/current/ /srv/ltx25-pack/ && bash /srv/ltx25-pack/ltx25-pack-deploy.sh install\n' "$dest"
+printf 'Install on a GPU server: sudo bash <pack-path>/%s/ltx25-pack-deploy.sh install\n' "$version"

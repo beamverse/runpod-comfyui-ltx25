@@ -1,0 +1,30 @@
+name: Windows downloader
+
+on:
+  push:
+    paths:
+      - 'offline-pack/windows-downloader/**'
+      - '.github/workflows/windows-downloader.yml'
+  pull_request:
+    paths:
+      - 'offline-pack/windows-downloader/**'
+      - '.github/workflows/windows-downloader.yml'
+
+jobs:
+  test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: offline-pack/windows-downloader
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: offline-pack/windows-downloader/go.mod
+      - run: go vet ./...
+      - run: go test -race ./...
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $env:CGO_ENABLED = "0"
+          go build -trimpath -ldflags "-s -w -X main.buildVersion=ci" -o dist/ltx25-download.exe .

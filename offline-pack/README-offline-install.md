@@ -48,6 +48,8 @@ then writes `<prefix>/latest.json`. A rerun skips objects that are already uploa
 
 ## 3. Mirror (LAN file server)
 
+On Windows, use the dependency-free `ltx25-download.exe` from the release; paste the administrator-provided download code, select the SSD, and it writes the same verified version directory while resuming interrupted downloads. See `README-cn.md` for details.
+
 ```bash
 bash ltx25-pack-mirror.sh /srv/ltx25            # version named by latest.json
 bash ltx25-pack-mirror.sh /srv/ltx25 20261018-120000
