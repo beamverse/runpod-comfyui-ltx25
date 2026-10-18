@@ -11,6 +11,7 @@ trap 'printf "ERROR: setup stopped at line %s; correct the problem and rerun.\n"
 usage() {
     printf '%s\n' \
       'Usage: bash setup-comfyui-ltx25.sh [install|download|start|startup|help] [ComfyUI arguments...]' \
+      '       bash setup-comfyui-ltx25.sh --create-offline-pack <pack-dir>  (see offline-pack/)' \
       'install (default): install/update ComfyUI + CUDA PyTorch + LTX-2.5 models' \
       'download: LTX-2.5 models and workflows only; no GPU needed (e.g. a CPU Pod filling a volume)' \
       'start: run the last successfully installed release; no token needed' \
@@ -240,6 +241,9 @@ action=${1:-install}
 if (($#)); then shift; fi
 case "$action" in
     help|--help|-h) usage; exit 0 ;;
+    # Offline pack builder; see offline-pack/README-offline-install.md.
+    --create-offline-pack)
+        exec bash "$(dirname "$(readlink -f "$0")")/offline-pack/ltx25-pack-build.sh" create "$@" ;;
     install|download|start|startup) ;;
     *) usage >&2; die "Unknown action: $action" ;;
 esac
@@ -978,7 +982,8 @@ for index, (repo, filename, sha, size, folder) in enumerate(plan, start=1):
     if dest.stat().st_size != size:
         raise SystemExit(f'Incomplete download: {filename}')
     print(f'[{index}/{len(plan)}] Ready: {filename} (100%; downloaded or reused from cache)', flush=True)
-    manifest.append(dict(repo=repo, filename=filename, revision=sha, bytes=size))
+    manifest.append(dict(repo=repo, filename=filename, revision=sha, bytes=size,
+                         path=dest.relative_to(model_dir).as_posix()))
 
 # Community audio-driven I2V workflow kept in this repository. It needs custom
 # nodes (rgthree, mtb, KJNodes, Custom-Scripts; installed by start) and only
