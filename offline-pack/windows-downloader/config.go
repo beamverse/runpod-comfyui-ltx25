@@ -181,9 +181,12 @@ func readSecret(in io.Reader, out io.Writer) (string, error) {
 		return br.ReadString('\n')
 	}
 	if f, ok := in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-		b, e := term.ReadPassword(int(f.Fd()))
-		fmt.Fprintln(out)
-		return string(b), e
+		state, err := term.MakeRaw(int(f.Fd()))
+		if err != nil {
+			return "", err
+		}
+		defer term.Restore(int(f.Fd()), state)
+		return readMaskedLine(f, out)
 	}
 	return bufio.NewReader(in).ReadString('\n')
 }

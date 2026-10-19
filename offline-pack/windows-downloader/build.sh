@@ -7,8 +7,8 @@ export GOPATH="${GOPATH:-/tmp/ltx25-gopath}"
 mkdir -p dist
 if command -v go-winres >/dev/null && [[ -f winres/winres.json ]]; then go-winres make --in winres/winres.json --arch amd64; fi
 version=$(git -C ../.. describe --always --dirty 2>/dev/null || echo dev)
-account=${LTX25_R2_ACCOUNT_ID:-}
-bucket=${LTX25_R2_BUCKET:-}
+account=${LTX25_R2_ACCOUNT_ID:-ad08bb8c3fe9619985d859879e41d93f}
+bucket=${LTX25_R2_BUCKET:-ltx25-packs}
 prefix=${LTX25_R2_PREFIX:-ltx25}
 [[ -z "$account" || "$account" =~ ^[a-f0-9]{32}$ ]] || { echo 'LTX25_R2_ACCOUNT_ID must be 32 lowercase hex characters' >&2; exit 2; }
 [[ -z "$bucket" || "$bucket" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]] || { echo 'LTX25_R2_BUCKET is not a valid bucket name' >&2; exit 2; }
